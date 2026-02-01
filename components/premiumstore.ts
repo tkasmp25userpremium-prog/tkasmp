@@ -1,16 +1,20 @@
 // src/components/premiumstore.ts
-import { auth, db } from "../firebase";
+import { auth } from "../firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { db } from "../firebase";
 import { signOut } from "firebase/auth";
 
+// === STATE PREMIUM ===
 export type PremiumState = {
   isPremium: boolean;
-  activeUntil: number; // timestamp (ms)
+  activeUntil: number; // timestamp ms
+  deviceMismatch?: boolean; // ✅ untuk notifikasi di UI
 };
 
 const emptyState = (): PremiumState => ({
   isPremium: false,
   activeUntil: 0,
+  deviceMismatch: false,
 });
 
 // === DEVICE ID (anti sharing) ===
@@ -56,13 +60,14 @@ export const loadPremiumState = (): PremiumState => {
         typeof parsed.isPremium === "boolean" &&
         typeof parsed.activeUntil === "number"
       ) {
-        return parsed;
+        return { ...parsed, deviceMismatch: false };
       }
     } catch {}
   }
   return emptyState();
 };
 
+// === SIMPAN STATE KE LOCAL STORAGE ===
 const savePremiumState = (st: PremiumState) => {
   if (typeof window === "undefined") return;
   localStorage.setItem("tka_smp_premium_state_v1", JSON.stringify(st));
@@ -75,12 +80,14 @@ export const refreshMyPremiumState = async (): Promise<PremiumState> => {
 
   const ref = doc(db, "users", u.uid);
   const snap = await getDoc(ref);
+
   if (!snap.exists()) return emptyState();
 
   const data = snap.data() || {};
   const st: PremiumState = {
     isPremium: !!data.isPremium,
     activeUntil: data.activeUntil ? Number(data.activeUntil) : 0,
+    deviceMismatch: false,
   };
 
   savePremiumState(st);
@@ -112,16 +119,26 @@ export const subscribeMyPremiumState = (
       const data = docSnap.data() || {};
       const lockedDeviceId = String(data.deviceId || "");
 
-      // Kalau sudah dilock deviceId dan beda dengan device ini → LOGOUT
+      // ✅ DEVICE MISMATCH → auto logout + bersihkan cache premium
       if (lockedDeviceId && lockedDeviceId !== localDeviceId) {
+        try {
+          localStorage.removeItem("tka_smp_premium_state_v1");
+        } catch {}
+
         signOut(auth).catch(() => {});
-        onNext(emptyState());
+
+        onNext({
+          isPremium: false,
+          activeUntil: 0,
+          deviceMismatch: true,
+        });
         return;
       }
 
       const st: PremiumState = {
         isPremium: !!data.isPremium,
         activeUntil: data.activeUntil ? Number(data.activeUntil) : 0,
+        deviceMismatch: false,
       };
 
       savePremiumState(st);

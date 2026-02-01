@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Page, User } from "../types";
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
 import {
   loginGoogle,
@@ -21,8 +21,10 @@ type Props = {
   currentUser: User | null;
   onLogout: () => void;
   setCurrentPage: (p: Page) => void;
+
   onAdminLogin: (email: string) => boolean;
   adminEmails: string[];
+
   premiumState?: any;
 };
 
@@ -32,9 +34,9 @@ const FORM_URL = "https://forms.gle/aqaVUgyY36edj89G7";
 const ADMIN_WA_E164 = "628981091600";
 
 // ✅ KONFIG DISKON
-const DISCOUNT_AMOUNT = 10000;
-const ORIGINAL_PRICE = 129000;
-const DISCOUNTED_PRICE = ORIGINAL_PRICE - DISCOUNT_AMOUNT;
+const DISCOUNT_AMOUNT = 10000; // Rp10.000
+const ORIGINAL_PRICE = 129000; // Rp129.000
+const DISCOUNTED_PRICE = ORIGINAL_PRICE - DISCOUNT_AMOUNT; // Rp119.000
 
 const Premium: React.FC<Props> = ({
   currentUser,
@@ -51,84 +53,81 @@ const Premium: React.FC<Props> = ({
 
   const [st, setSt] = useState(() => loadPremiumState());
 
-  // WhatsApp
+  // ✅ STATE: Nomor WhatsApp user
   const [whatsapp, setWhatsapp] = useState<string>("");
   const [whatsappValid, setWhatsappValid] = useState<boolean>(false);
 
-  // Diskon Joiner
+  // ✅ STATE: Kode Diskon Joiner
   const [discountCode, setDiscountCode] = useState<string>("");
   const [discountValid, setDiscountValid] = useState<boolean>(false);
   const [discountApplied, setDiscountApplied] = useState<boolean>(false);
 
+  // ✅ email stabil (fallback)
+  const displayEmail = useMemo(() => {
+    return (authEmail || auth.currentUser?.email || "").trim();
+  }, [authEmail]);
+
   const isAdminEmail = useMemo(() => {
-    const e = (authEmail || "").trim().toLowerCase();
+    const e = (displayEmail || "").trim().toLowerCase();
     return adminEmails.map((x) => x.toLowerCase()).includes(e);
-  }, [authEmail, adminEmails]);
+  }, [displayEmail, adminEmails]);
 
   const premiumActive = useMemo(() => {
     return !!st.isPremium && (st.activeUntil || 0) > Date.now();
   }, [st]);
 
-  // Harga final
+  // ✅ Harga final (dengan/ tanpa diskon)
   const finalPrice = useMemo(() => {
     return discountApplied ? DISCOUNTED_PRICE : ORIGINAL_PRICE;
   }, [discountApplied]);
 
-  // ====== AUTH LISTENER + ANTI SHARING SET DEVICE ======
+  // ====== AUTH LISTENER + LAST-LOGIN-WINS DEVICE LOCK ======
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       if (!u) {
         setUid("");
         setAuthEmail("");
         setSt(loadPremiumState());
-        setMsg("");
         return;
       }
 
       const uidNow = u.uid;
       const emailNow = (u.email || "").toLowerCase();
-
       setUid(uidNow);
       setAuthEmail(emailNow);
 
-      // deviceId dibuat sekali per device (browser ini)
+      // ✅ device id lokal
       const deviceId = getOrCreateDeviceId();
-
       const userRef = doc(db, "users", uidNow);
 
-      // Pastikan doc user ada + lock deviceId pertama kali
-      const snap = await getDoc(userRef);
-      if (!snap.exists()) {
-        await setDoc(
-          userRef,
-          {
-            uid: uidNow,
-            email: emailNow,
-            createdAt: new Date().toISOString(),
-            deviceId, // ✅ field utama anti sharing
-            lastLogin: new Date().toISOString(),
-          },
-          { merge: true }
-        );
-      } else {
-        const data = snap.data() || {};
-        const locked = String(data.deviceId || "");
+      // ✅ LAST LOGIN WINS: selalu set deviceId ke device yg sedang login
+      // (ini yang bikin device lain auto logout via snapshot)
+      const now = new Date().toISOString();
+      await setDoc(
+        userRef,
+        {
+          uid: uidNow,
+          email: emailNow,
+          deviceId,
+          lastLogin: now,
+          updatedAt: now,
+          createdAt: now, // merge aman, kalau sudah ada tidak masalah
+        },
+        { merge: true }
+      );
 
-        // Kalau belum ada deviceId → set sekarang (aman)
-        if (!locked) {
-          await updateDoc(userRef, {
-            deviceId,
-            lastLogin: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          });
-        } else {
-          // Kalau deviceId sudah ada dan beda → jangan overwrite.
-          // Nanti subscribeMyPremiumState yang akan auto-logout device lain.
-          await updateDoc(userRef, {
-            lastLogin: new Date().toISOString(),
-          });
+      // ✅ load whatsapp/joinCode kalau mau tampil (optional)
+      try {
+        const snap = await getDoc(userRef);
+        if (snap.exists()) {
+          const data = snap.data() as any;
+          if (data?.whatsapp) setWhatsapp(String(data.whatsapp));
+          if (data?.joinCode && !discountApplied) {
+            // hanya isi input, tidak auto apply
+            setDiscountCode(String(data.joinCode));
+          }
         }
-      }
+      } catch {}
 
       try {
         const latest = await refreshMyPremiumState();
@@ -146,13 +145,25 @@ const Premium: React.FC<Props> = ({
     });
 
     return () => unsubAuth();
-  }, []);
+  }, [discountApplied]);
 
-  // Validasi WA
+  // ✅ notifikasi kalau device mismatch
+  useEffect(() => {
+    if (st.deviceMismatch) {
+      setMsg(
+        "⚠️ Akun ini sedang digunakan di perangkat lain.\n\n" +
+          "1 akun hanya bisa digunakan di 1 perangkat aktif.\n\n" +
+          "Jika kamu ingin memakai akun ini di perangkat ini, silakan login ulang.\n" +
+          "Perangkat lain akan otomatis logout."
+      );
+    }
+  }, [st.deviceMismatch]);
+
+  // ✅ Validasi nomor WhatsApp
   useEffect(() => {
     const clean = whatsapp.replace(/[^0-9]/g, "");
-    const valid = /^(08|628)\d{8,12}$/.test(clean);
-    setWhatsappValid(valid);
+    const validIndonesia = /^(08|628)\d{8,12}$/.test(clean);
+    setWhatsappValid(validIndonesia);
   }, [whatsapp]);
 
   const doGoogleLogin = async () => {
@@ -182,7 +193,7 @@ const Premium: React.FC<Props> = ({
   };
 
   const doAdminLogin = () => {
-    const email = (authEmail || "").trim().toLowerCase();
+    const email = (displayEmail || "").trim().toLowerCase();
     if (!email) {
       setMsg("❌ Kamu belum login Google.");
       return;
@@ -191,20 +202,18 @@ const Premium: React.FC<Props> = ({
     if (!ok) setMsg("❌ Email ini tidak ada di whitelist admin.");
   };
 
-  // Simpan WhatsApp
+  // ✅ Simpan nomor WhatsApp ke Firestore
   const saveWhatsapp = async () => {
     if (!uid || !whatsappValid) return;
 
     try {
       const cleanWa = whatsapp.replace(/[^0-9]/g, "");
-      const formattedWa = cleanWa.startsWith("08")
-        ? `62${cleanWa.substring(1)}`
-        : cleanWa;
+      const formattedWa = cleanWa.startsWith("08") ? `62${cleanWa.substring(1)}` : cleanWa;
 
       const userRef = doc(db, "users", uid);
       await updateDoc(userRef, {
         whatsapp: formattedWa,
-        email: authEmail,
+        email: displayEmail.toLowerCase(),
         updatedAt: new Date().toISOString(),
       });
 
@@ -215,7 +224,7 @@ const Premium: React.FC<Props> = ({
     }
   };
 
-  // Apply diskon
+  // ✅ Apply kode diskon + simpan ke user doc
   const applyDiscountCode = async () => {
     const cleanCode = discountCode.trim();
     if (!cleanCode) {
@@ -260,12 +269,13 @@ const Premium: React.FC<Props> = ({
     setDiscountValid(false);
   };
 
-  const formatRupiah = (angka: number) =>
-    new Intl.NumberFormat("id-ID", {
+  const formatRupiah = (angka: number) => {
+    return new Intl.NumberFormat("id-ID", {
       style: "currency",
       currency: "IDR",
       minimumFractionDigits: 0,
     }).format(angka);
+  };
 
   const formatWhatsapp = (wa: string) => {
     const clean = wa.replace(/[^0-9]/g, "");
@@ -273,9 +283,9 @@ const Premium: React.FC<Props> = ({
     return clean.replace(/(\d{4})(\d{4})(\d{4})/, "$1-$2-$3");
   };
 
-  // WA template
+  // ✅ WhatsApp template admin
   const waText = useMemo(() => {
-    const email = (authEmail || "").trim();
+    const email = (displayEmail || "").trim();
     const kodeAkun = (uid || "").trim();
     const waUser = whatsapp.replace(/[^0-9]/g, "").trim();
     const kodeDiskon = discountApplied ? discountCode.trim().toUpperCase() : "";
@@ -312,6 +322,8 @@ const Premium: React.FC<Props> = ({
     if (kodeDiskon) {
       lines.push(`Kode Diskon Joiner: ${kodeDiskon}`);
       lines.push(`Harga Bayar: ${formatRupiah(finalPrice)}`);
+    } else {
+      lines.push(`Harga Bayar: ${formatRupiah(finalPrice)}`);
     }
 
     lines.push("");
@@ -321,12 +333,11 @@ const Premium: React.FC<Props> = ({
     lines.push("Terima kasih.");
 
     return lines.join("\n");
-  }, [authEmail, uid, whatsapp, discountCode, discountApplied, finalPrice]);
+  }, [displayEmail, uid, whatsapp, discountCode, discountApplied, finalPrice]);
 
-  const waHref = useMemo(
-    () => `https://wa.me/${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}`,
-    [waText]
-  );
+  const waHref = useMemo(() => {
+    return `https://wa.me/${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}`;
+  }, [waText]);
 
   const copy = async (text: string) => {
     try {
@@ -354,37 +365,15 @@ const Premium: React.FC<Props> = ({
         <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
           <div className="flex items-center justify-between mb-4">
             <div className="text-lg font-bold">Paket Premium TKA SMP</div>
-            <div className="text-xs font-black bg-blue-500 text-black px-3 py-1 rounded-full">
-              AKSES PENUH
-            </div>
+            <div className="text-xs font-black bg-blue-500 text-black px-3 py-1 rounded-full">AKSES PENUH</div>
           </div>
 
           <div className="mb-3">
-            <div className="text-sm text-zinc-400 line-through font-semibold">
-              Harga normal Rp199.000
-            </div>
-
-            <div className="text-5xl font-black text-white leading-tight">
-              {formatRupiah(finalPrice)}
-            </div>
-
-            <div className="flex items-center gap-2 mt-1">
-              <div className="text-xs text-green-400 font-semibold">
-                🔥 Hemat {formatRupiah(199000 - finalPrice)} (Promo)
-              </div>
-              {discountApplied && (
-                <div className="text-xs bg-yellow-500 text-black font-bold px-2 py-0.5 rounded">
-                  DISKON Rp10.000
-                </div>
-              )}
-            </div>
+            <div className="text-sm text-zinc-400 line-through font-semibold">Harga normal Rp199.000</div>
+            <div className="text-5xl font-black text-white leading-tight">{formatRupiah(finalPrice)}</div>
           </div>
 
-          <div className="text-zinc-400 text-sm mb-6">
-            Sekali bayar, akses aktif <b>1 tahun</b> sejak admin mengaktifkan akun kamu.
-          </div>
-
-          {/* KODE DISKON */}
+          {/* ✅ INPUT KODE DISKON JOINER */}
           <div className="mb-6">
             {!uid && (
               <div className="text-sm text-yellow-400 bg-yellow-900/30 p-3 rounded-lg mb-3">
@@ -392,13 +381,7 @@ const Premium: React.FC<Props> = ({
               </div>
             )}
 
-            <div className="text-sm font-bold mb-2 text-white">
-              Kode Diskon Joiner (Opsional)
-            </div>
-            <div className="text-xs text-zinc-500 mb-2">
-              Format: <b className="text-blue-400">TKA-XXXXXX</b> (contoh: TKA-ABC123)
-            </div>
-
+            <div className="text-sm font-bold mb-2 text-white">Kode Diskon Joiner (Opsional)</div>
             <div className="flex gap-2">
               <input
                 type="text"
@@ -435,107 +418,61 @@ const Premium: React.FC<Props> = ({
                 </button>
               )}
             </div>
-
-            {discountApplied && (
-              <div className="mt-2 text-xs text-green-400">
-                ✅ Diskon berhasil diterapkan! Harga menjadi {formatRupiah(finalPrice)}
-              </div>
-            )}
           </div>
 
-          {/* INPUT WHATSAPP */}
+          {/* ✅ INPUT WHATSAPP */}
           <div className="mb-6">
             <div className="text-sm font-bold mb-2 text-white">Nomor WhatsApp (Wajib)</div>
             <input
               type="tel"
               value={whatsapp}
               onChange={(e) => setWhatsapp(e.target.value)}
-              placeholder="Contoh: 0812-3456-7890"
+              placeholder="0812-3456-7890"
               className={`w-full bg-zinc-800 text-white p-3 rounded-lg border ${
                 whatsappValid ? "border-green-500" : "border-zinc-700"
               } focus:outline-none focus:ring-2 focus:ring-blue-500`}
             />
-            {whatsapp && !whatsappValid && (
-              <div className="mt-2 text-xs text-red-400">
-                ❌ Format nomor tidak valid. Gunakan 08xxxx atau 628xxxx
-              </div>
-            )}
+            {whatsapp && !whatsappValid && <div className="mt-2 text-xs text-red-400">❌ Format nomor tidak valid</div>}
             {whatsappValid && <div className="mt-2 text-xs text-green-400">✅ Nomor valid</div>}
           </div>
 
-          {/* TOMBOL */}
-          <div className="rounded-2xl bg-black/30 border border-zinc-800 p-5">
-            <div className="text-xs font-black tracking-widest text-zinc-500 mb-3">
-              CARA BAYAR (MANUAL — PALING AMAN)
-            </div>
+          <div className="grid gap-3">
+            <button
+              onClick={saveWhatsapp}
+              disabled={!whatsappValid || !uid}
+              className="block w-full text-center rounded-xl font-black py-3 bg-blue-500 text-black hover:opacity-90 disabled:opacity-50"
+            >
+              Simpan Nomor WhatsApp
+            </button>
 
-            <ol className="text-sm text-zinc-300 space-y-2 list-decimal list-inside">
-              <li>
-                <b>Login Google</b> → supaya email & <b>Kode Akun</b> tercatat.
-              </li>
-              <li>
-                <b>Input WA</b> → lalu klik <b>Simpan Nomor WhatsApp</b>.
-              </li>
-              <li>
-                (Opsional) <b>Input Kode Diskon Joiner</b>.
-              </li>
-              <li>Klik <b>Bayar Sekarang</b>.</li>
-              <li>
-                Setelah bayar, klik <b>Isi Form Konfirmasi Pembayaran</b>.
-              </li>
-              <li>
-                Kalau butuh cepat, klik <b>Chat Admin WhatsApp</b>.
-              </li>
-            </ol>
+            <a
+              className={`block w-full text-center rounded-xl font-black py-3 ${
+                whatsappValid && uid ? "bg-white text-black hover:opacity-90" : "bg-zinc-700 text-zinc-400 pointer-events-none"
+              }`}
+              href={LYNK_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Bayar Sekarang ({formatRupiah(finalPrice)})
+            </a>
 
-            <div className="mt-4 grid gap-3">
-              <button
-                onClick={saveWhatsapp}
-                disabled={!whatsappValid || !uid}
-                className={`block w-full text-center rounded-xl font-black py-3 ${
-                  whatsappValid && uid
-                    ? "bg-blue-500 text-black hover:opacity-90"
-                    : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                }`}
-              >
-                Simpan Nomor WhatsApp
-              </button>
+            <a
+              className="block w-full text-center rounded-xl bg-blue-500 text-black font-black py-3 hover:opacity-90"
+              href={FORM_URL}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Isi Form Konfirmasi Pembayaran
+            </a>
 
-              <a
-                className={`block w-full text-center rounded-xl font-black py-3 ${
-                  whatsappValid && uid
-                    ? "bg-white text-black hover:opacity-90"
-                    : "bg-zinc-700 text-zinc-400 pointer-events-none"
-                }`}
-                href={LYNK_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Bayar Sekarang ({formatRupiah(finalPrice)})
-              </a>
-
-              <a
-                className="block w-full text-center rounded-xl bg-blue-500 text-black font-black py-3 hover:opacity-90"
-                href={FORM_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Isi Form Konfirmasi Pembayaran
-              </a>
-
-              <a
-                className="block w-full text-center rounded-xl bg-green-500 text-black font-black py-3 hover:opacity-90"
-                href={waHref}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Chat Admin via WhatsApp
-              </a>
-
-              <div className="text-xs text-zinc-500">
-                WhatsApp hanya untuk mempercepat pengecekan. Utamanya tetap isi Form Konfirmasi.
-              </div>
-            </div>
+            <a
+              className="block w-full text-center rounded-xl bg-green-500 text-black font-black py-3 hover:opacity-90"
+              href={waHref}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Chat Admin via WhatsApp
+            </a>
           </div>
         </div>
 
@@ -571,18 +508,13 @@ const Premium: React.FC<Props> = ({
 
             <div className="flex items-start justify-between gap-3">
               <div className="text-sm text-zinc-300">
-                Email Google: <b>{authEmail || "-"}</b>
+                Email Google: <b>{displayEmail || "-"}</b>
                 <br />
                 Kode Akun: <span className="text-zinc-400">{uid || "-"}</span>
                 <br />
                 Nomor WhatsApp:{" "}
                 <b className={whatsappValid ? "text-green-400" : "text-zinc-400"}>
                   {whatsapp ? formatWhatsapp(whatsapp) : "-"}
-                </b>
-                <br />
-                Kode Diskon Joiner:{" "}
-                <b className={discountApplied ? "text-yellow-400" : "text-zinc-400"}>
-                  {discountApplied ? discountCode.trim().toUpperCase() : "-"}
                 </b>
                 <br />
                 Harga Bayar:{" "}
@@ -597,39 +529,22 @@ const Premium: React.FC<Props> = ({
               </div>
 
               <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => copy(authEmail || "")}
-                  disabled={!authEmail}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    authEmail ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
+                <button onClick={() => copy(displayEmail || "")} disabled={!displayEmail} className="rounded-xl px-3 py-2 text-xs font-black bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50">
                   Copy Email
                 </button>
-                <button
-                  onClick={() => copy(uid || "")}
-                  disabled={!uid}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    uid ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
+                <button onClick={() => copy(uid || "")} disabled={!uid} className="rounded-xl px-3 py-2 text-xs font-black bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50">
                   Copy Kode
                 </button>
-                <button
-                  onClick={() => copy(whatsapp || "")}
-                  disabled={!whatsapp}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    whatsapp ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
+                <button onClick={() => copy(whatsapp || "")} disabled={!whatsapp} className="rounded-xl px-3 py-2 text-xs font-black bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50">
                   Copy WA
                 </button>
               </div>
             </div>
 
-            {msg && <div className="mt-3 text-sm text-blue-300 whitespace-pre-line">{msg}</div>}
+            {msg && <div className="mt-3 text-sm text-yellow-300 whitespace-pre-line">{msg}</div>}
           </div>
 
+          {/* Tombol Admin */}
           {isAdminEmail && (
             <div className="mt-6">
               <button
