@@ -1,13 +1,11 @@
 // src/components/premiumstore.ts
-import { auth } from "../firebase";
-import { doc, getDoc, setDoc, onSnapshot } from "firebase/firestore";
-import { db } from "../firebase";
+import { auth, db } from "../firebase";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { signOut } from "firebase/auth";
 
-// === STATE PREMIUM ===
 export type PremiumState = {
   isPremium: boolean;
-  activeUntil: number; // timestamp
+  activeUntil: number; // timestamp (ms)
 };
 
 const emptyState = (): PremiumState => ({
@@ -18,10 +16,13 @@ const emptyState = (): PremiumState => ({
 // === DEVICE ID (anti sharing) ===
 const DEVICE_ID_KEY = "tka_smp_device_id_v1";
 
-const getOrCreateDeviceId = (): string => {
+export const getOrCreateDeviceId = (): string => {
+  if (typeof window === "undefined") return "ssr";
   let id = localStorage.getItem(DEVICE_ID_KEY);
   if (!id) {
-    id = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+    id =
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15);
     localStorage.setItem(DEVICE_ID_KEY, id);
   }
   return id;
@@ -36,21 +37,25 @@ export const loginGoogle = async () => {
 
 // === LOGOUT GOOGLE ===
 export const logoutGoogle = async () => {
-  // Hapus session lokal
-  localStorage.removeItem("tka_smp_current_user");
-  localStorage.removeItem("tka_smp_premium_state_v1");
-  
-  // Logout Firebase
+  try {
+    localStorage.removeItem("tka_smp_current_user");
+    localStorage.removeItem("tka_smp_premium_state_v1");
+  } catch {}
   return signOut(auth);
 };
 
 // === LOAD STATE DARI LOCAL STORAGE ===
 export const loadPremiumState = (): PremiumState => {
+  if (typeof window === "undefined") return emptyState();
   const saved = localStorage.getItem("tka_smp_premium_state_v1");
   if (saved) {
     try {
       const parsed = JSON.parse(saved);
-      if (parsed && typeof parsed.isPremium === "boolean" && typeof parsed.activeUntil === "number") {
+      if (
+        parsed &&
+        typeof parsed.isPremium === "boolean" &&
+        typeof parsed.activeUntil === "number"
+      ) {
         return parsed;
       }
     } catch {}
@@ -58,8 +63,8 @@ export const loadPremiumState = (): PremiumState => {
   return emptyState();
 };
 
-// === SIMPAN STATE KE LOCAL STORAGE ===
 const savePremiumState = (st: PremiumState) => {
+  if (typeof window === "undefined") return;
   localStorage.setItem("tka_smp_premium_state_v1", JSON.stringify(st));
 };
 
@@ -70,10 +75,9 @@ export const refreshMyPremiumState = async (): Promise<PremiumState> => {
 
   const ref = doc(db, "users", u.uid);
   const snap = await getDoc(ref);
-  
   if (!snap.exists()) return emptyState();
 
-  const data = snap.data();
+  const data = snap.data() || {};
   const st: PremiumState = {
     isPremium: !!data.isPremium,
     activeUntil: data.activeUntil ? Number(data.activeUntil) : 0,
@@ -91,10 +95,10 @@ export const subscribeMyPremiumState = (
   const u = auth.currentUser;
   if (!u) {
     onNext(emptyState());
-    return () => {}; // ← TIDAK subscribe jika belum login
+    return () => {};
   }
 
-  const deviceId = getOrCreateDeviceId();
+  const localDeviceId = getOrCreateDeviceId();
   const ref = doc(db, "users", u.uid);
 
   const unsub = onSnapshot(
@@ -108,8 +112,8 @@ export const subscribeMyPremiumState = (
       const data = docSnap.data() || {};
       const lockedDeviceId = String(data.deviceId || "");
 
-      // Jika device ID di Firestore ≠ device lokal → auto logout
-      if (lockedDeviceId && lockedDeviceId !== deviceId) {
+      // Kalau sudah dilock deviceId dan beda dengan device ini → LOGOUT
+      if (lockedDeviceId && lockedDeviceId !== localDeviceId) {
         signOut(auth).catch(() => {});
         onNext(emptyState());
         return;
