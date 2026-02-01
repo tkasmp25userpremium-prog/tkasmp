@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Page, User } from "../types";
-import { auth } from "../firebase";
+import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
 import {
   loginGoogle,
   logoutGoogle,
@@ -9,53 +10,37 @@ import {
   refreshMyPremiumState,
   subscribeMyPremiumState,
 } from "./premiumstore";
-
-// ✅ Import fungsi validasi joiner
 import { validateJoinCode } from "../firebase/joiner";
-
-// ✅ Import Firestore functions
-import { db } from "../firebase";
-import { doc, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
 type Props = {
   onLogin: (wa: string, pass: string) => boolean;
   currentUser: User | null;
   onLogout: () => void;
   setCurrentPage: (p: Page) => void;
-
   onAdminLogin: (email: string) => boolean;
   adminEmails: string[];
-
   premiumState?: any;
 };
 
-// === KONFIG MANUAL PAYMENT ===
 const LYNK_URL = "http://lynk.id/juarapintar/9x93l3r8zj7k";
 const FORM_URL = "https://forms.gle/aqaVUgyY36edj89G7";
 const ADMIN_WA_E164 = "628981091600";
-
-// ✅ KONFIG DISKON
-const DISCOUNT_AMOUNT = 10000; // Rp10.000
-const ORIGINAL_PRICE = 129000; // Rp129.000
-const DISCOUNTED_PRICE = ORIGINAL_PRICE - DISCOUNT_AMOUNT; // Rp119.000
+const DISCOUNT_AMOUNT = 10000; 
+const ORIGINAL_PRICE = 129000; 
+const DISCOUNTED_PRICE = ORIGINAL_PRICE - DISCOUNT_AMOUNT; 
 
 const Premium: React.FC<Props> = ({ currentUser, onLogout, setCurrentPage, onAdminLogin, adminEmails }) => {
   const [msg, setMsg] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
-
   const [uid, setUid] = useState<string>("");
   const [authEmail, setAuthEmail] = useState<string>("");
-
   const [st, setSt] = useState(() => loadPremiumState());
-
-  // ✅ STATE: Nomor WhatsApp user
   const [whatsapp, setWhatsapp] = useState<string>("");
   const [whatsappValid, setWhatsappValid] = useState<boolean>(false);
-
-  // ✅ STATE: Kode Diskon Joiner
   const [discountCode, setDiscountCode] = useState<string>("");
   const [discountValid, setDiscountValid] = useState<boolean>(false);
   const [discountApplied, setDiscountApplied] = useState<boolean>(false);
+  const [currentDevice, setCurrentDevice] = useState<string>("");
 
   const isAdminEmail = useMemo(() => {
     const e = (authEmail || "").trim().toLowerCase();
@@ -66,6 +51,13 @@ const Premium: React.FC<Props> = ({ currentUser, onLogout, setCurrentPage, onAdm
     return !!st.isPremium && (st.activeUntil || 0) > Date.now();
   }, [st]);
 
+  // DETEKSI DEVICE
+  useEffect(() => {
+    const deviceId = ${navigator.userAgent}-${Math.random().toString(36).substring(2, 7)};
+    setCurrentDevice(deviceId);
+  }, []);
+
+  // LOGIN & ANTI-SHARING
   useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -77,585 +69,148 @@ const Premium: React.FC<Props> = ({ currentUser, onLogout, setCurrentPage, onAdm
 
       const uid = u.uid;
       const email = (u.email || "").toLowerCase();
-
       setUid(uid);
       setAuthEmail(email);
 
-      // ✅ Pastikan dokumen users/{uid} selalu ada saat login
       const userRef = doc(db, "users", uid);
       const userSnap = await getDoc(userRef);
       if (!userSnap.exists()) {
         await setDoc(userRef, {
           uid,
           email,
+          devices: [currentDevice],
           createdAt: new Date().toISOString(),
         }, { merge: true });
+      } else {
+        const data = userSnap.data() as any;
+        const devices: string[] = data.devices || [];
+        if (!devices.includes(currentDevice)) {
+          // Tambahkan device baru & auto logout device lama
+          await updateDoc(userRef, { devices: [currentDevice], updatedAt: new Date().toISOString() });
+        }
       }
 
       try {
         const latest = await refreshMyPremiumState();
         setSt(latest);
       } catch (e: any) {
-        setMsg(`❌ ${e?.message || String(e)}`);
+        setMsg(❌ ${e?.message || String(e)});
       }
 
       const unsubUser = subscribeMyPremiumState(
         (next) => setSt(next),
-        (err) => setMsg(`❌ Firestore listen error: ${err?.message || String(err)}`)
+        (err) => setMsg(❌ Firestore listen error: ${err?.message || String(err)})
       );
 
       return () => unsubUser();
     });
 
     return () => unsubAuth();
-  }, []);
+  }, [currentDevice]);
 
-  // ✅ Validasi nomor WhatsApp
+  // VALIDASI WHATSAPP
   useEffect(() => {
-    const validate = () => {
-      if (!whatsapp.trim()) {
-        setWhatsappValid(false);
-        return;
-      }
-
-      const clean = whatsapp.replace(/[^0-9]/g, "");
-      const validIndonesia = /^(08|628)\d{8,12}$/.test(clean);
-      setWhatsappValid(validIndonesia);
-    };
-
-    validate();
+    const clean = whatsapp.replace(/[^0-9]/g, "");
+    const validIndonesia = /^(08|628)\d{8,12}$/.test(clean);
+    setWhatsappValid(validIndonesia);
   }, [whatsapp]);
 
-  // ✅ Harga final (dengan/ tanpa diskon)
-  const finalPrice = useMemo(() => {
-    return discountApplied ? DISCOUNTED_PRICE : ORIGINAL_PRICE;
-  }, [discountApplied]);
+  const finalPrice = useMemo(() => discountApplied ? DISCOUNTED_PRICE : ORIGINAL_PRICE, [discountApplied]);
 
   const doGoogleLogin = async () => {
-    setMsg("");
-    setLoading(true);
-    try {
-      await loginGoogle();
-      setMsg("✅ Login Google berhasil.");
-    } catch (e: any) {
-      setMsg(`❌ Login Google gagal: ${e?.message || String(e)}`);
-    } finally {
-      setLoading(false);
-    }
+    setMsg(""); setLoading(true);
+    try { await loginGoogle(); setMsg("✅ Login Google berhasil."); } 
+    catch (e: any) { setMsg(❌ Login Google gagal: ${e?.message || String(e)}); } 
+    finally { setLoading(false); }
   };
 
   const doGoogleLogout = async () => {
-    setMsg("");
-    setLoading(true);
-    try {
-      await logoutGoogle();
-      setMsg("✅ Logout berhasil.");
-    } catch (e: any) {
-      setMsg(`❌ Logout gagal: ${e?.message || String(e)}`);
-    } finally {
-      setLoading(false);
-    }
+    setMsg(""); setLoading(true);
+    try { await logoutGoogle(); setMsg("✅ Logout berhasil."); } 
+    catch (e: any) { setMsg(❌ Logout gagal: ${e?.message || String(e)}); } 
+    finally { setLoading(false); }
   };
 
   const doAdminLogin = () => {
     const email = (authEmail || "").trim().toLowerCase();
-    if (!email) {
-      setMsg("❌ Kamu belum login Google.");
-      return;
-    }
+    if (!email) { setMsg("❌ Kamu belum login Google."); return; }
     const ok = onAdminLogin(email);
     if (!ok) setMsg("❌ Email ini tidak ada di whitelist admin.");
   };
 
-  // ✅ Simpan nomor WhatsApp ke Firestore (langsung, tanpa API)
   const saveWhatsapp = async () => {
     if (!uid || !whatsappValid) return;
-
     try {
       const cleanWa = whatsapp.replace(/[^0-9]/g, "");
-      const formattedWa = cleanWa.startsWith("08") ? `62${cleanWa.substring(1)}` : cleanWa;
-
+      const formattedWa = cleanWa.startsWith("08") ? 62${cleanWa.substring(1)} : cleanWa;
       const userRef = doc(db, "users", uid);
-      await updateDoc(userRef, {
-        whatsapp: formattedWa,
-        email: authEmail,
-        updatedAt: new Date().toISOString(),
-      });
-
-      setMsg("✅ Nomor WhatsApp tersimpan.");
-      setTimeout(() => setMsg(""), 2000);
-    } catch (e: any) {
-      console.error("Save WhatsApp error:", e);
-      setMsg(`❌ Gagal menyimpan WhatsApp: ${e?.message || "Coba lagi"}`);
-    }
+      await updateDoc(userRef, { whatsapp: formattedWa, email: authEmail, updatedAt: new Date().toISOString() });
+      setMsg("✅ Nomor WhatsApp tersimpan."); setTimeout(() => setMsg(""), 2000);
+    } catch (e: any) { setMsg(❌ Gagal menyimpan WhatsApp: ${e?.message || "Coba lagi"}); }
   };
 
-  // ✅ Apply kode diskon + simpan ke user doc (dengan setDoc + merge)
   const applyDiscountCode = async () => {
     const cleanCode = discountCode.trim();
-    if (!cleanCode) {
-      setMsg("❌ Masukkan kode diskon terlebih dahulu.");
-      return;
-    }
-
+    if (!cleanCode) { setMsg("❌ Masukkan kode diskon terlebih dahulu."); return; }
     setLoading(true);
     try {
       const validation = await validateJoinCode(cleanCode);
-      
-      if (!validation.isValid) {
-        setMsg(`❌ ${validation.message}`);
-        return;
-      }
-
-      if (uid) {
-        const userRef = doc(db, "users", uid);
-        await setDoc(userRef, {
-          joinCode: validation.joinCode,
-          updatedAt: new Date().toISOString(),
-        }, { merge: true });
-      }
-
-      setDiscountApplied(true);
-      setDiscountValid(true);
-      setMsg(`✅ Kode diskon ${validation.joinCode} berhasil! Diskon Rp10.000`);
-    } catch (e: any) {
-      console.error("Apply discount error:", e);
-      setMsg(`❌ Error: ${e?.message || "Coba lagi"}`);
-    } finally {
-      setLoading(false);
-    }
+      if (!validation.isValid) { setMsg(❌ ${validation.message}); return; }
+      if (uid) { const userRef = doc(db, "users", uid); await setDoc(userRef, { joinCode: validation.joinCode, updatedAt: new Date().toISOString() }, { merge: true }); }
+      setDiscountApplied(true); setDiscountValid(true); setMsg(✅ Kode diskon ${validation.joinCode} berhasil! Diskon Rp10.000);
+    } catch (e: any) { setMsg(❌ Error: ${e?.message || "Coba lagi"}); } finally { setLoading(false); }
   };
 
-  // ✅ Reset kode diskon
-  const resetDiscountCode = () => {
-    setDiscountCode("");
-    setDiscountApplied(false);
-    setDiscountValid(false);
-  };
+  const resetDiscountCode = () => { setDiscountCode(""); setDiscountApplied(false); setDiscountValid(false); };
 
-  // ✅ Format harga Rupiah
-  const formatRupiah = (angka: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0,
-    }).format(angka);
-  };
+  const formatRupiah = (angka: number) => new Intl.NumberFormat("id-ID", { style: "currency", currency: "IDR", minimumFractionDigits: 0 }).format(angka);
 
-  // ✅ WhatsApp template
   const waText = useMemo(() => {
     const email = (authEmail || "").trim();
     const kodeAkun = (uid || "").trim();
     const waUser = whatsapp.replace(/[^0-9]/g, "").trim();
     const kodeDiskon = discountApplied ? discountCode.trim().toUpperCase() : "";
-
     if (!email) {
-      return [
-        "Halo kak 👋",
-        "",
-        "Untuk aktivasi Premium, kakak wajib login Google dulu di halaman Premium (tombol “Login Google”).",
-        "",
-        "Setelah login, lakukan ini ya:",
-        "1) Input Nomor WhatsApp di halaman Premium",
-        "2) (Opsional) Input Kode Diskon Joiner untuk potongan Rp10.000",
-        "3) Klik “Isi Form Konfirmasi Pembayaran (Wajib)”",
-        "4) Isi Email Google + Kode Akun + Nomor WhatsApp yang tampil di web",
-        "5) Upload bukti pembayaran di form",
-        "",
-        "Kalau sudah isi form, balas chat ini dengan tulisan: “Sudah isi form” ✅",
-        "Nanti admin cek & aktifkan premium.",
-        "",
-        "Terima kasih 🙏",
-      ].join("\n");
+      return ["Halo kak 👋","Login Google dulu","Input WA & kode diskon","Isi form konfirmasi pembayaran","Admin akan aktifkan premium"].join("\n");
     }
-
-    const lines = [
-      "Halo Admin TKA SMP 👋",
-      "",
-      "Saya mau aktivasi Premium. Saya sudah isi Form Konfirmasi ✅",
-      "",
-      `Email Google: ${email}`,
-      `Kode Akun: ${kodeAkun || "-"}`,
-      `Nomor WhatsApp: ${waUser || "-"}`,
-    ];
-
-    if (kodeDiskon) {
-      lines.push(`Kode Diskon Joiner: ${kodeDiskon}`);
-      lines.push(`Harga Bayar: ${formatRupiah(finalPrice)}`);
-    }
-
-    lines.push("");
-    lines.push("Bukti bayar: (saya kirim setelah chat ini, jika diperlukan)");
-    lines.push("");
-    lines.push("Mohon dibantu aktivasi ya 🙏");
-    lines.push("Terima kasih.");
-
+    const lines = [Halo Admin 👋,Email: ${email} , Kode Akun: ${kodeAkun || "-"}, Nomor WA: ${waUser || "-"}];
+    if (kodeDiskon) { lines.push(Kode Diskon: ${kodeDiskon}); lines.push(Harga Bayar: ${formatRupiah(finalPrice)}); }
     return lines.join("\n");
   }, [authEmail, uid, whatsapp, discountCode, discountApplied, finalPrice]);
 
-  const waHref = useMemo(() => `https://wa.me/${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}`, [waText]);
-
-  const copy = async (text: string) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setMsg("✅ Disalin.");
-      setTimeout(() => setMsg(""), 1200);
-    } catch {
-      setMsg("❌ Gagal menyalin. (Browser tidak mendukung clipboard)");
-    }
-  };
-
-  // ✅ Format WhatsApp untuk tampilan
-  const formatWhatsapp = (wa: string) => {
-    const clean = wa.replace(/[^0-9]/g, "");
-    if (!clean) return "";
-    return clean.replace(/(\d{4})(\d{4})(\d{4})/, "$1-$2-$3");
-  };
+  const waHref = useMemo(() => https://wa.me/${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}, [waText]);
+  const copy = async (text: string) => { try { await navigator.clipboard.writeText(text); setMsg("✅ Disalin."); setTimeout(() => setMsg(""), 1200); } catch { setMsg("❌ Gagal menyalin"); } };
+  const formatWhatsapp = (wa: string) => { const clean = wa.replace(/[^0-9]/g, ""); if (!clean) return ""; return clean.replace(/(\d{4})(\d{4})(\d{4})/, "$1-$2-$3"); };
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
-      <div className="text-center mb-10">
-        <h1 className="text-4xl md:text-6xl font-black tracking-tight">
-          Akses Premium <span className="text-blue-500">TKA SMP</span>
-        </h1>
-        <p className="text-zinc-400 mt-3">
-          Premium membuka latihan yang terkunci. Masa aktif <b>1 tahun</b> sejak admin mengaktifkan akun kamu.
-        </p>
-      </div>
+      <div className="text-center mb-10"><h1 className="text-4xl md:text-6xl font-black tracking-tight">Akses Premium <span className="text-blue-500">TKA SMP</span></h1></div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Kartu Paket / Pembayaran */}
+        {/* Paket */}
         <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
-          <div className="flex items-center justify-between mb-4">
-            <div className="text-lg font-bold">Paket Premium TKA SMP</div>
-            <div className="text-xs font-black bg-blue-500 text-black px-3 py-1 rounded-full">AKSES PENUH</div>
-          </div>
-
-          <div className="mb-3">
-            <div className="text-sm text-zinc-400 line-through font-semibold">
-              Harga normal Rp199.000
-            </div>
-
-            {/* ✅ Harga dinamis dengan/ tanpa diskon */}
-            <div className="text-5xl font-black text-white leading-tight">
-              {formatRupiah(finalPrice)}
-            </div>
-
-            <div className="flex items-center gap-2 mt-1">
-              <div className="text-xs text-green-400 font-semibold">
-                🔥 Hemat {formatRupiah(199000 - finalPrice)} (Promo)
-              </div>
-              {discountApplied && (
-                <div className="text-xs bg-yellow-500 text-black font-bold px-2 py-0.5 rounded">
-                  DISKON Rp10.000
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="text-zinc-400 text-sm mb-6">
-            Sekali bayar, akses aktif <b>1 tahun</b> sejak admin mengaktifkan akun kamu.
-          </div>
-
-          {/* ✅ INPUT KODE DISKON JOINER */}
-          <div className="mb-6">
-            {!uid && (
-              <div className="text-sm text-yellow-400 bg-yellow-900/30 p-3 rounded-lg mb-3">
-                ⚠️ Login Google dulu sebelum input kode diskon!
-              </div>
-            )}
-
-            <div className="text-sm font-bold mb-2 text-white">
-              Kode Diskon Joiner (Opsional)
-            </div>
-            <div className="text-xs text-zinc-500 mb-2">
-              Punya kode diskon dari program Joiner? Masukkan di sini untuk potongan <b>Rp10.000</b>!
-              <br />
-              <span className="text-blue-400 font-semibold">
-                Format: TKA-XXXXXX (contoh: TKA-ABC123)
-              </span>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={discountCode}
-                onChange={(e) => {
-                  setDiscountCode(e.target.value);
-                  if (discountApplied) setDiscountApplied(false);
-                }}
-                placeholder="TKA-ABC123"
-                disabled={!uid}
-                className={`flex-1 bg-zinc-800 text-white p-3 rounded-lg border ${
-                  discountValid ? "border-green-500" : "border-zinc-700"
-                } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-              />
-              {!discountApplied ? (
-                <button
-                  onClick={applyDiscountCode}
-                  disabled={!uid || !discountCode.trim() || loading}
-                  className={`px-4 rounded-lg font-black ${
-                    uid && discountCode.trim() && !loading
-                      ? "bg-green-500 text-black hover:opacity-90"
-                      : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                  }`}
-                >
-                  {loading ? "Loading..." : "Apply"}
-                </button>
-              ) : (
-                <button
-                  onClick={resetDiscountCode}
-                  className="px-4 bg-red-500 text-white rounded-lg font-black hover:bg-red-600"
-                >
-                  Reset
-                </button>
-              )}
-            </div>
-            {discountApplied && (
-              <div className="mt-2 text-xs text-green-400">
-                ✅ Diskon Rp10.000 berhasil diterapkan! Harga menjadi {formatRupiah(finalPrice)}
-              </div>
-            )}
-            <div className="mt-2 text-xs text-blue-400">
-              💡 <b>Tidak punya kode?</b> Kamu bisa minta ke teman yang ikut program Joiner, atau langsung bayar tanpa diskon.
-            </div>
-          </div>
-
-          {/* ✅ INPUT WHATSAPP */}
-          <div className="mb-6">
-            <div className="text-sm font-bold mb-2 text-white">
-              Nomor WhatsApp (Wajib)
-            </div>
-            <div className="text-xs text-zinc-500 mb-2">
-              Input nomor WhatsApp aktif kamu untuk komunikasi dan notifikasi premium.
-            </div>
-            <input
-              type="tel"
-              value={whatsapp}
-              onChange={(e) => setWhatsapp(e.target.value)}
-              placeholder="Contoh: 0812-3456-7890"
-              className={`w-full bg-zinc-800 text-white p-3 rounded-lg border ${
-                whatsappValid ? "border-green-500" : "border-zinc-700"
-              } focus:outline-none focus:ring-2 focus:ring-blue-500`}
-            />
-            {whatsapp && !whatsappValid && (
-              <div className="mt-2 text-xs text-red-400">
-                ❌ Format nomor tidak valid. Gunakan format: 0812-3456-7890 atau 081234567890
-              </div>
-            )}
-            {whatsappValid && (
-              <div className="mt-2 text-xs text-green-400">
-                ✅ Nomor valid
-              </div>
-            )}
-          </div>
-
-          <div className="rounded-2xl bg-black/30 border border-zinc-800 p-5">
-            <div className="text-xs font-black tracking-widest text-zinc-500 mb-3">
-              CARA BAYAR (MANUAL — PALING AMAN)
-            </div>
-
-            <ol className="text-sm text-zinc-300 space-y-2 list-decimal list-inside">
-              <li>
-                <b>Login Google (Wajib)</b> → supaya email & <b>Kode Akun</b> tercatat.
-              </li>
-              <li>
-                <b>Input Kode Diskon Joiner (Opsional)</b> → untuk potongan Rp10.000.
-              </li>
-              <li>
-                <b>Input & Simpan Nomor WhatsApp (Wajib)</b> → klik tombol "Simpan Nomor WhatsApp" setelah input.
-              </li>
-              <li>Klik <b>Bayar Sekarang</b>.</li>
-              <li>
-                Setelah bayar, klik <b>Isi Form Konfirmasi Pembayaran (Wajib)</b>.
-              </li>
-              <li>
-                Kalau butuh cepat, klik <b>Chat Admin via WhatsApp (Opsional)</b>.
-              </li>
-              <li>Admin aktifkan premium → kamu refresh → premium aktif.</li>
-            </ol>
-
-            <div className="mt-4 grid gap-3">
-              <button
-                onClick={saveWhatsapp}
-                disabled={!whatsappValid || !uid}
-                className={`block w-full text-center rounded-xl font-black py-3 ${
-                  whatsappValid && uid
-                    ? "bg-blue-500 text-black hover:opacity-90"
-                    : "bg-zinc-700 text-zinc-400 cursor-not-allowed"
-                }`}
-              >
-                Simpan Nomor WhatsApp
-              </button>
-
-              {/* ✅ HARGA DINAMIS DI SINI */}
-              <a
-                className={`block w-full text-center rounded-xl font-black py-3 ${
-                  whatsappValid && uid
-                    ? "bg-white text-black hover:opacity-90"
-                    : "bg-zinc-700 text-zinc-400 pointer-events-none"
-                }`}
-                href={LYNK_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Bayar Sekarang ({formatRupiah(finalPrice)})
-              </a>
-
-              <a
-                className="block w-full text-center rounded-xl bg-blue-500 text-black font-black py-3 hover:opacity-90"
-                href={FORM_URL}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Isi Form Konfirmasi Pembayaran (Wajib)
-              </a>
-
-              <a
-                className="block w-full text-center rounded-xl bg-green-500 text-black font-black py-3 hover:opacity-90"
-                href={waHref}
-                target="_blank"
-                rel="noreferrer"
-              >
-                Chat Admin via WhatsApp (Opsional)
-              </a>
-
-              <div className="text-xs text-zinc-500">
-                WhatsApp hanya untuk mempercepat pengecekan. Utamanya tetap isi Form Konfirmasi.
-              </div>
-            </div>
-          </div>
+          <div className="mb-3 text-sm text-zinc-400 line-through font-semibold">Harga normal Rp199.000</div>
+          <div className="text-5xl font-black text-white leading-tight">{formatRupiah(finalPrice)}</div>
+          <input type="text" placeholder="TKA-XXXXXX" value={discountCode} onChange={(e)=>{setDiscountCode(e.target.value); if(discountApplied) setDiscountApplied(false)}} className={flex-1 bg-zinc-800 text-white p-3 rounded-lg border ${discountValid ? "border-green-500":"border-zinc-700"} focus:outline-none focus:ring-2 focus:ring-blue-500} disabled={!uid}/>
+          <button onClick={applyDiscountCode} disabled={!uid||!discountCode.trim()||loading} className="mt-2 px-4 py-2 bg-green-500 text-black font-black rounded-lg">{loading?"Loading...":"Apply"}</button>
+          <button onClick={resetDiscountCode} className="mt-2 px-4 py-2 bg-red-500 text-white font-black rounded-lg">Reset</button>
+          <input type="tel" value={whatsapp} onChange={(e)=>setWhatsapp(e.target.value)} placeholder="0812-3456-7890" className={w-full bg-zinc-800 text-white p-3 rounded-lg border ${whatsappValid ? "border-green-500":"border-zinc-700"} focus:outline-none focus:ring-2 focus:ring-blue-500} />
+          <button onClick={saveWhatsapp} disabled={!whatsappValid||!uid} className="mt-2 w-full bg-blue-500 text-black font-black py-3 rounded-xl">Simpan Nomor WhatsApp</button>
+          <a className="block mt-2 w-full text-center rounded-xl bg-white text-black font-black py-3 hover:opacity-90" href={LYNK_URL} target="_blank" rel="noreferrer">Bayar Sekarang ({formatRupiah(finalPrice)})</a>
+          <a className="block mt-2 w-full text-center rounded-xl bg-blue-500 text-black font-black py-3 hover:opacity-90" href={FORM_URL} target="_blank" rel="noreferrer">Isi Form Konfirmasi Pembayaran</a>
+          <a className="block mt-2 w-full text-center rounded-xl bg-green-500 text-black font-black py-3 hover:opacity-90" href={waHref} target="_blank" rel="noreferrer">Chat Admin WA</a>
         </div>
 
-        {/* Kartu Login */}
+        {/* Login */}
         <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
-          <div className="text-lg font-bold mb-4"> Login Google (Wajib)</div>
-          <div className="text-sm text-zinc-400 mb-4">
-            Login sebelum bayar supaya sistem bisa mengenali akun kamu dan admin bisa mengaktifkan Premium.
-          </div>
+          {!uid ? <button onClick={doGoogleLogin} disabled={loading} className="w-full py-3 bg-white text-black font-black rounded-xl">{loading?"Loading...":"Login Google"}</button> :
+          <button onClick={doGoogleLogout} disabled={loading} className="w-full py-3 bg-zinc-800 text-white font-black rounded-xl">{loading?"Loading...":"Logout"}</button>}
 
-          <div className="mt-2 flex gap-3">
-            {!uid ? (
-              <button
-                onClick={doGoogleLogin}
-                disabled={loading}
-                className="flex-1 rounded-xl bg-white text-black font-black py-3 hover:opacity-90 disabled:opacity-60"
-              >
-                {loading ? "Loading..." : "Login Google"}
-              </button>
-            ) : (
-              <button
-                onClick={doGoogleLogout}
-                disabled={loading}
-                className="flex-1 rounded-xl bg-zinc-800 text-white font-black py-3 hover:bg-zinc-700 disabled:opacity-60"
-              >
-                {loading ? "Loading..." : "Logout"}
-              </button>
-            )}
-          </div>
-
-          <div className="mt-5 rounded-2xl bg-black/30 border border-zinc-800 p-4">
-            <div className="text-sm font-bold mb-2">Informasi Akun Kamu</div>
-
-            <div className="flex items-start justify-between gap-3">
-              <div className="text-sm text-zinc-300">
-                Email Google: <b>{authEmail || "-"}</b>
-                <br />
-                Kode Akun: <span className="text-zinc-400">{uid || "-"}</span>
-                <br />
-                Nomor WhatsApp:{" "}
-                <b className={whatsappValid ? "text-green-400" : "text-zinc-400"}>
-                  {whatsapp ? formatWhatsapp(whatsapp) : "-"}
-                </b>
-                <br />
-                Kode Diskon Joiner:{" "}
-                <b className={discountApplied ? "text-yellow-400" : "text-zinc-400"}>
-                  {discountApplied ? discountCode.trim().toUpperCase() : "-"}
-                </b>
-                <br />
-                {/* ✅ HARGA DINAMIS DI SINI JUGA */}
-                Harga Bayar:{" "}
-                <b className={discountApplied ? "text-yellow-400" : "text-white"}>
-                  {formatRupiah(finalPrice)}
-                </b>
-                <br />
-                Status Premium:{" "}
-                <b className={premiumActive ? "text-green-400" : "text-zinc-400"}>
-                  {premiumActive ? "AKTIF" : "BELUM AKTIF"}
-                </b>
-                <br />
-                {st?.activeUntil ? (
-                  <span className="text-zinc-400">
-                    Aktif sampai: {new Date(Number(st.activeUntil)).toLocaleString()}
-                  </span>
-                ) : (
-                  <span className="text-zinc-500">Jika kamu sudah bayar, pastikan sudah isi Form Konfirmasi.</span>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-2">
-                <button
-                  onClick={() => copy(authEmail || "")}
-                  disabled={!authEmail}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    authEmail ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
-                  Copy Email
-                </button>
-                <button
-                  onClick={() => copy(uid || "")}
-                  disabled={!uid}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    uid ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
-                  Copy Kode
-                </button>
-                <button
-                  onClick={() => copy(whatsapp || "")}
-                  disabled={!whatsapp}
-                  className={`rounded-xl px-3 py-2 text-xs font-black ${
-                    whatsapp ? "bg-zinc-800 hover:bg-zinc-700" : "bg-zinc-900 text-zinc-600"
-                  }`}
-                >
-                  Copy WA
-                </button>
-              </div>
-            </div>
-
-            {msg && <div className="mt-3 text-sm text-blue-300 whitespace-pre-line">{msg}</div>}
-          </div>
-
-          {/* Tombol Admin */}
-          {isAdminEmail && (
-            <div className="mt-6">
-              <button
-                onClick={doAdminLogin}
-                className="w-full rounded-xl font-black py-3 bg-blue-500 text-black hover:opacity-90"
-              >
-                Masuk Admin Panel
-              </button>
-              <div className="text-xs text-zinc-500 mt-2">
-                Admin: <b>{adminEmails?.[0] || "-"}</b>
-              </div>
-            </div>
-          )}
-
-          {currentUser?.role === "admin" && (
-            <div className="mt-6">
-              <button
-                onClick={() => {
-                  onLogout();
-                  setCurrentPage(Page.HOME);
-                }}
-                className="w-full rounded-xl bg-red-500/20 border border-red-500/40 text-red-200 font-black py-3"
-              >
-                Logout Admin (App)
-              </button>
-            </div>
-          )}
+          {isAdminEmail && <button onClick={doAdminLogin} className="mt-4 w-full py-3 bg-blue-500 text-black font-black rounded-xl">Masuk Admin Panel</button>}
         </div>
       </div>
+
+      {msg && <div className="mt-3 text-sm text-blue-300 whitespace-pre-line">{msg}</div>}
     </div>
   );
 };
