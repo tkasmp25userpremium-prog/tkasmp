@@ -1,4 +1,3 @@
-// src/firebase/joiner.ts
 import { db } from "./index";
 import {
   doc,
@@ -7,6 +6,7 @@ import {
   where,
   getDocs,
   setDoc,
+  getDoc,
   limit,
 } from "firebase/firestore";
 
@@ -39,21 +39,37 @@ const generateUniqueJoinCode = async (): Promise<string> => {
   return code;
 };
 
-// ✅ Register joiner
+// ✅ FIX: Cek apakah joiner sudah terdaftar & punya kode
 export const registerJoiner = async (uid: string, email: string) => {
+  const joinerRef = doc(db, "joiners", uid);
+  const joinerSnap = await getDoc(joinerRef);
+
+  // ✅ Jika sudah ada → return kode lama (TIDAK GENERATE BARU!)
+  if (joinerSnap.exists()) {
+    const data = joinerSnap.data();
+    return {
+      uid,
+      email: data?.email || email,
+      joinCode: data?.joinCode || "",
+      totalUsed: data?.totalUsed || 0, // ✅ Tetap ada field, tapi tidak auto-update
+      cashbackForm: data?.cashbackForm || "",
+      createdAt: data?.createdAt || new Date().toISOString(),
+    };
+  }
+
+  // ✅ Jika belum ada → generate kode baru & simpan
   const joinCode = await generateUniqueJoinCode();
 
   const joinerData = {
     uid,
     email,
     joinCode,
-    totalUsed: 0,
+    totalUsed: 0, // ✅ Selalu 0 (tidak auto-increment)
     cashbackForm: "",
     createdAt: new Date().toISOString(),
   };
 
-  const joinerRef = doc(db, "joiners", uid);
-  await setDoc(joinerRef, joinerData, { merge: false });
+  await setDoc(joinerRef, joinerData);
 
   return joinerData;
 };
@@ -90,3 +106,8 @@ export const validateJoinCode = async (code: string): Promise<{
     message: "Kode diskon valid!",
   };
 };
+
+// ❌ FUNGSI INI DIHAPUS (tracking cashback manual dari admin)
+// export const incrementJoinCodeUsage = async (joinCode: string): Promise<void> => {
+//   ... (dihapus)
+// };

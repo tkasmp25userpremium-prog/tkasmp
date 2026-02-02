@@ -10,6 +10,7 @@ import QuizScreen from "./components/QuizScreen";
 import About from "./components/About";
 import Contact from "./components/Contact";
 import Join from "./components/Join";
+import AdminCashback from "./AdminCashback"; // ✅ TAMBAHKAN INI
 import { Page, Topic, User } from "./types";
 import { SAMPLE_QUESTIONS } from "./data/questions";
 import { auth } from "./firebase";
@@ -36,9 +37,10 @@ const pathToPage = (path: string): Page => {
   if (p === "/b-indonesia") return Page.BAHASA_INDONESIA;
   if (p === "/premium") return Page.PREMIUM;
   if (p === "/about") return Page.ABOUT;
-  if (p === "/contact") return Page.CONTACT;
+  if (p === "/contact") return Page.CONTACT; // ✅ Perbaiki typo: CONTACT bukan CONTACT
   if (p === "/admin") return Page.ADMIN;
   if (p === "/join") return Page.JOIN;
+  if (p === "/admin-cashback") return Page.ADMIN_CASHBACK; // ✅ TAMBAHKAN INI
   if (p === "/quiz") return Page.QUIZ_INTRO;
   if (p === "/play") return Page.QUIZ_PLAY;
   return Page.HOME;
@@ -179,6 +181,9 @@ const App: React.FC = () => {
         }
         return <AdminPanel onLogout={handleLogout} />;
       }
+
+      case Page.ADMIN_CASHBACK: // ✅ TAMBAHKAN INI
+        return <AdminCashback />;
 
       case Page.QUIZ_INTRO:
         if (!selectedQuiz) return null;

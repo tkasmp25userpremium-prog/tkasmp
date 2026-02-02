@@ -1,4 +1,3 @@
-
 export enum Page {
   HOME = 'HOME',
   MATEMATIKA = 'MATEMATIKA',
@@ -10,7 +9,8 @@ export enum Page {
   QUIZ_INTRO = 'QUIZ_INTRO',
   QUIZ_PLAY = 'QUIZ_PLAY',
   ADMIN = 'ADMIN',
-  JOIN = 'JOIN'
+  JOIN = 'JOIN',
+  ADMIN_CASHBACK = 'ADMIN_CASHBACK' // ✅ TAMBAHKAN INI
 }
 
 export interface User {
