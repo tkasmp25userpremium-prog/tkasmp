@@ -1,4 +1,4 @@
-// src/pages/AdminCashback.tsx
+// AdminCashback.tsx
 import React, { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
