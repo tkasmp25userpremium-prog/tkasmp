@@ -30,7 +30,7 @@ type Props = {
 
 // === KONFIG MANUAL PAYMENT ===
 const LYNK_URL = "http://lynk.id/juarapintar/9x93l3r8zj7k";
-const FORM_URL = "https://forms.gle/aqaVUgyY36edj89G7";
+const FORM_URL = "https://forms.gle/aqaVUgyY36edj89G7  ";
 const ADMIN_WA_E164 = "628981091600";
 
 // ✅ KONFIG DISKON
@@ -147,17 +147,21 @@ const Premium: React.FC<Props> = ({
     return () => unsubAuth();
   }, [discountApplied]);
 
-  // ✅ notifikasi kalau device mismatch
+  // ✅ notifikasi kalau device mismatch (dengan email perangkat lain)
   useEffect(() => {
-    if (st.deviceMismatch) {
+    if (st.deviceMismatch && st.lockedEmail) {
+      const emailOther = st.lockedEmail || "perangkat lain";
       setMsg(
-        "⚠️ Akun ini sedang digunakan di perangkat lain.\n\n" +
-          "1 akun hanya bisa digunakan di 1 perangkat aktif.\n\n" +
-          "Jika kamu ingin memakai akun ini di perangkat ini, silakan login ulang.\n" +
-          "Perangkat lain akan otomatis logout."
+        "⚠️ AKUN INI SEDANG DIGUNAKAN DI PERANGKAT LAIN\n\n" +
+          `📧 Email yang sedang login: ${emailOther}\n\n` +
+          "🔒 1 akun hanya bisa digunakan di 1 perangkat aktif.\n\n" +
+          "💡 Jika kamu ingin memakai akun ini di perangkat ini:\n" +
+          "   1. Pastikan kamu logout di perangkat lain\n" +
+          "   2. Login ulang di perangkat ini\n\n" +
+          "⚠️ Perangkat lain akan otomatis logout dalam 2 detik..."
       );
     }
-  }, [st.deviceMismatch]);
+  }, [st.deviceMismatch, st.lockedEmail]);
 
   // ✅ Validasi nomor WhatsApp
   useEffect(() => {
@@ -336,7 +340,7 @@ const Premium: React.FC<Props> = ({
   }, [displayEmail, uid, whatsapp, discountCode, discountApplied, finalPrice]);
 
   const waHref = useMemo(() => {
-    return `https://wa.me/${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}`;
+    return `https://wa.me/  ${ADMIN_WA_E164}?text=${encodeURIComponent(waText)}`;
   }, [waText]);
 
   const copy = async (text: string) => {

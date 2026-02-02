@@ -1,4 +1,3 @@
-// src/components/premiumstore.ts
 import { auth } from "../firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "../firebase";
@@ -9,12 +8,14 @@ export type PremiumState = {
   isPremium: boolean;
   activeUntil: number; // timestamp ms
   deviceMismatch?: boolean; // ✅ untuk notifikasi di UI
+  lockedEmail?: string; // ✅ email perangkat lain yang sedang login
 };
 
 const emptyState = (): PremiumState => ({
   isPremium: false,
   activeUntil: 0,
   deviceMismatch: false,
+  lockedEmail: undefined,
 });
 
 // === DEVICE ID (anti sharing) ===
@@ -32,6 +33,12 @@ export const getOrCreateDeviceId = (): string => {
   return id;
 };
 
+// ✅ FIX: Reset device ID saat logout
+export const resetDeviceId = (): void => {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(DEVICE_ID_KEY);
+};
+
 // === LOGIN GOOGLE ===
 export const loginGoogle = async () => {
   const { GoogleAuthProvider, signInWithPopup } = await import("firebase/auth");
@@ -42,8 +49,10 @@ export const loginGoogle = async () => {
 // === LOGOUT GOOGLE ===
 export const logoutGoogle = async () => {
   try {
+    // ✅ FIX: Reset semua state termasuk device ID
     localStorage.removeItem("tka_smp_current_user");
     localStorage.removeItem("tka_smp_premium_state_v1");
+    resetDeviceId(); // ✅ Reset device ID
   } catch {}
   return signOut(auth);
 };
@@ -60,7 +69,7 @@ export const loadPremiumState = (): PremiumState => {
         typeof parsed.isPremium === "boolean" &&
         typeof parsed.activeUntil === "number"
       ) {
-        return { ...parsed, deviceMismatch: false };
+        return { ...parsed, deviceMismatch: false, lockedEmail: undefined };
       }
     } catch {}
   }
@@ -88,6 +97,7 @@ export const refreshMyPremiumState = async (): Promise<PremiumState> => {
     isPremium: !!data.isPremium,
     activeUntil: data.activeUntil ? Number(data.activeUntil) : 0,
     deviceMismatch: false,
+    lockedEmail: undefined,
   };
 
   savePremiumState(st);
@@ -108,7 +118,42 @@ export const subscribeMyPremiumState = (
   const localDeviceId = getOrCreateDeviceId();
   const ref = doc(db, "users", u.uid);
 
-  const unsub = onSnapshot(
+  // ✅ Track unsubscribe untuk cleanup
+  let unsubSnapshot: (() => void) | null = null;
+
+  const handleDeviceMismatch = async (lockedEmail?: string) => {
+    try {
+      // ✅ Cleanup semua state
+      localStorage.removeItem("tka_smp_premium_state_v1");
+      resetDeviceId(); // ✅ Reset device ID
+
+      // ✅ Unsubscribe listener sebelum logout
+      if (unsubSnapshot) {
+        unsubSnapshot();
+        unsubSnapshot = null;
+      }
+
+      // ✅ Force logout
+      await signOut(auth);
+
+      // ✅ Update state UI dengan info email perangkat lain
+      onNext({
+        isPremium: false,
+        activeUntil: 0,
+        deviceMismatch: true,
+        lockedEmail: lockedEmail || "perangkat lain",
+      });
+
+      // ✅ Force refresh halaman setelah 2 detik
+      setTimeout(() => {
+        window.location.reload();
+      }, 2000);
+    } catch (err) {
+      if (onError) onError(err);
+    }
+  };
+
+  unsubSnapshot = onSnapshot(
     ref,
     (docSnap) => {
       if (!docSnap.exists()) {
@@ -118,20 +163,11 @@ export const subscribeMyPremiumState = (
 
       const data = docSnap.data() || {};
       const lockedDeviceId = String(data.deviceId || "");
+      const lockedEmail = String(data.email || "");
 
       // ✅ DEVICE MISMATCH → auto logout + bersihkan cache premium
       if (lockedDeviceId && lockedDeviceId !== localDeviceId) {
-        try {
-          localStorage.removeItem("tka_smp_premium_state_v1");
-        } catch {}
-
-        signOut(auth).catch(() => {});
-
-        onNext({
-          isPremium: false,
-          activeUntil: 0,
-          deviceMismatch: true,
-        });
+        handleDeviceMismatch(lockedEmail);
         return;
       }
 
@@ -139,15 +175,32 @@ export const subscribeMyPremiumState = (
         isPremium: !!data.isPremium,
         activeUntil: data.activeUntil ? Number(data.activeUntil) : 0,
         deviceMismatch: false,
+        lockedEmail: undefined,
       };
 
       savePremiumState(st);
       onNext(st);
     },
     (err) => {
+      // ✅ Handle error auth/user-token-expired (setelah logout)
+      if (err.code === "permission-denied" || err.code === "unauthenticated") {
+        // User sudah logout, biarkan state kosong
+        onNext(emptyState());
+        if (unsubSnapshot) {
+          unsubSnapshot();
+          unsubSnapshot = null;
+        }
+        return;
+      }
       if (onError) onError(err);
     }
   );
 
-  return unsub;
+  // ✅ Return cleanup function
+  return () => {
+    if (unsubSnapshot) {
+      unsubSnapshot();
+      unsubSnapshot = null;
+    }
+  };
 };
