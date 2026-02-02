@@ -1,8 +1,8 @@
 // src/pages/AdminCashback.tsx
 import React, { useState, useEffect } from "react";
-import { db } from "../firebase";
+import { db } from "./firebase";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
-import { auth, onAuthStateChanged } from "../firebase";
+import { auth, onAuthStateChanged } from "./firebase";
 
 const AdminCashback: React.FC = () => {
   const [joinCode, setJoinCode] = useState("");
