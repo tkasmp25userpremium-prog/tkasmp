@@ -17,11 +17,8 @@ const AdminCashback: React.FC = () => {
   const [message, setMessage] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const [waMessage, setWaMessage] = useState("");
-  
-  // ✅ State untuk SOP
   const [activeTab, setActiveTab] = useState<"cashback" | "sop">("cashback");
 
-  // ✅ Cek apakah user adalah admin
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user && user.email === "tkasmp25.monitoringpremium@gmail.com") {
@@ -34,15 +31,11 @@ const AdminCashback: React.FC = () => {
     return () => unsubscribe();
   }, []);
 
-  // ✅ Load semua joiner
   const loadAllJoiners = async () => {
     try {
       const q = query(collection(db, "joiners"));
       const snapshot = await getDocs(q);
-      const joiners = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      }));
+      const joiners = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       setAllJoiners(joiners);
     } catch (error) {
       console.error("Error loading joiners:", error);
@@ -59,38 +52,21 @@ const AdminCashback: React.FC = () => {
     setMessage("");
 
     try {
-      // Query user yang pakai kode joiner
-      const usersQuery = query(
-        collection(db, "users"),
-        where("joinCode", "==", joinCode.trim())
-      );
+      const usersQuery = query(collection(db, "users"), where("joinCode", "==", joinCode.trim()));
       const usersSnapshot = await getDocs(usersQuery);
       const totalUsers = usersSnapshot.size;
 
-      // Filter user yang premium aktif
       const premiumActive = usersSnapshot.docs.filter(doc => {
         const data = doc.data();
         return data.isPremium === true && (data.activeUntil || 0) > Date.now();
       }).length;
 
-      // Cari data joiner (termasuk rekening)
-      const joinersQuery = query(
-        collection(db, "joiners"),
-        where("joinCode", "==", joinCode.trim())
-      );
+      const joinersQuery = query(collection(db, "joiners"), where("joinCode", "==", joinCode.trim()));
       const joinersSnapshot = await getDocs(joinersQuery);
       const joinerData = joinersSnapshot.docs[0]?.data() || {};
 
-      setResult({
-        totalUsers,
-        premiumActive,
-        premiumInactive: totalUsers - premiumActive,
-        joinerData
-      });
-
+      setResult({ totalUsers, premiumActive, premiumInactive: totalUsers - premiumActive, joinerData });
       setMessage(`✅ Ditemukan ${totalUsers} user dengan kode ${joinCode}`);
-      
-      // Generate pesan WA
       generateWaMessage(joinerData, premiumActive);
     } catch (error) {
       setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal menghitung"}`);
@@ -103,23 +79,17 @@ const AdminCashback: React.FC = () => {
     const nama = joinerData?.name || joinerData?.email?.split('@')[0] || "Joiner";
     const kode = joinerData?.joinCode || joinCode;
     const totalCashback = premiumActive * 10000;
-    
     const message = `Halo ${nama} 👋\n\nCashback kamu sudah siap! 💰\n\n📊 Rincian:\n• Kode Joiner: ${kode}\n• User Premium Aktif: ${premiumActive} orang\n• Cashback Per User: Rp10.000\n• Total Cashback: Rp${totalCashback.toLocaleString('id-ID')}\n\n💰 Total yang akan dibayarkan: Rp${totalCashback.toLocaleString('id-ID')}\n\nSilakan konfirmasi nomor rekening/e-wallet ya!\nTerima kasih sudah menjadi joiner TKA SMP! 🙏`;
-    
     setWaMessage(message);
   };
 
   const updateTotalUsed = async () => {
     if (!result) return;
-
     setLoading(true);
     setMessage("");
 
     try {
-      const joinersQuery = query(
-        collection(db, "joiners"),
-        where("joinCode", "==", joinCode.trim())
-      );
+      const joinersQuery = query(collection(db, "joiners"), where("joinCode", "==", joinCode.trim()));
       const joinersSnapshot = await getDocs(joinersQuery);
 
       if (joinersSnapshot.empty) {
@@ -130,10 +100,7 @@ const AdminCashback: React.FC = () => {
       const joinerDoc = joinersSnapshot.docs[0];
       const joinerRef = doc(db, "joiners", joinerDoc.id);
 
-      await updateDoc(joinerRef, {
-        totalUsed: result.premiumActive,
-      });
-
+      await updateDoc(joinerRef, { totalUsed: result.premiumActive });
       setMessage(`✅ totalUsed berhasil diupdate menjadi ${result.premiumActive}`);
     } catch (error) {
       setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal update"}`);
@@ -153,7 +120,6 @@ const AdminCashback: React.FC = () => {
     }
   };
 
-  // ✅ Render SOP Content
   const renderSOPContent = () => {
     if (activeTab === "cashback") {
       return (
@@ -215,8 +181,6 @@ const AdminCashback: React.FC = () => {
           {result && (
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
               <div className="text-lg font-bold mb-4">Hasil Hitung & Data Rekening</div>
-              
-              {/* Data Joiner */}
               <div className="mb-6 p-4 bg-black/30 rounded-lg">
                 <h3 className="text-lg font-bold mb-2">📋 Data Joiner</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
@@ -229,7 +193,6 @@ const AdminCashback: React.FC = () => {
                 </div>
               </div>
 
-              {/* Hasil Hitung */}
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Total user pakai kode:</span>
@@ -257,7 +220,6 @@ const AdminCashback: React.FC = () => {
                 >
                   {loading ? "Loading..." : `Update totalUsed = ${result.premiumActive}`}
                 </button>
-                
                 <button
                   onClick={copyWaMessage}
                   disabled={!waMessage}
@@ -278,15 +240,12 @@ const AdminCashback: React.FC = () => {
       );
     }
 
-    // ✅ SOP Content
     return (
       <div className="space-y-6">
         <div className="text-center">
           <h2 className="text-3xl font-black text-blue-400 mb-4">📋 SOP Admin Cashback</h2>
           <p className="text-zinc-400">Panduan lengkap untuk proses pembayaran cashback</p>
         </div>
-
-        {/* Tabs SOP */}
         <div className="flex gap-4 border-b border-zinc-700 pb-4">
           <button
             onClick={() => setActiveTab("sop")}
@@ -312,29 +271,20 @@ const AdminCashback: React.FC = () => {
 
         {activeTab === "sop" && (
           <div className="space-y-6">
-            {/* Cashback Per User */}
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
               <h3 className="text-xl font-bold text-green-400 mb-4">💰 Cashback Per User</h3>
               <ol className="text-sm text-zinc-300 space-y-3 list-decimal list-inside">
-                <li>
-                  <b>Buka Admin Panel:</b> Login di <code className="bg-zinc-800 px-2 py-1 rounded">/admin-cashback</code>
-                </li>
-                <li>
-                  <b>Input Kode Joiner:</b> Masukkan kode joiner (contoh: TKA-ABC123)
-                </li>
-                <li>
-                  <b>Verifikasi Data:</b>
+                <li><b>Buka Admin Panel:</b> Login di <code className="bg-zinc-800 px-2 py-1 rounded">/admin-cashback</code></li>
+                <li><b>Input Kode Joiner:</b> Masukkan kode joiner (contoh: TKA-ABC123)</li>
+                <li><b>Verifikasi Data:</b>
                   <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
                     <li>Nama joiner sesuai data</li>
                     <li>Rekening/e-wallet valid</li>
                     <li>User premium aktif ≥1 orang</li>
                   </ul>
                 </li>
-                <li>
-                  <b>Hitung Cashback:</b> Jumlah user × Rp10.000
-                </li>
-                <li>
-                  <b>Proses Pembayaran:</b>
+                <li><b>Hitung Cashback:</b> Jumlah user × Rp10.000</li>
+                <li><b>Proses Pembayaran:</b>
                   <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
                     <li>Klik "Update totalUsed"</li>
                     <li>Klik "Copy Pesan WA"</li>
@@ -344,12 +294,10 @@ const AdminCashback: React.FC = () => {
               </ol>
             </div>
 
-            {/* Cashback Antar Sekolah */}
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
               <h3 className="text-xl font-bold text-purple-400 mb-4">🏫 Cashback Antar Sekolah</h3>
               <div className="text-sm text-zinc-300 space-y-3">
-                <div>
-                  <b>Syarat Wajib:</b>
+                <div><b>Syarat Wajib:</b>
                   <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
                     <li>Joiner A merekomendasikan ke Sekolah B</li>
                     <li>Minimal 1 joiner dari Sekolah B mendaftar</li>
@@ -357,9 +305,7 @@ const AdminCashback: React.FC = () => {
                     <li><b>Sekolah B punya ≥20 user premium AKTIF</b></li>
                   </ul>
                 </div>
-                
-                <div>
-                  <b>Langkah Validasi:</b>
+                <div><b>Langkah Validasi:</b>
                   <ol className="list-decimal list-inside mt-2 space-y-1 ml-4">
                     <li>Cari joiner dengan <code className="bg-zinc-800 px-2 py-1 rounded">recommenderCode</code> ≠ kosong</li>
                     <li>Buka Firestore Console → filter user by sekolah</li>
@@ -367,9 +313,7 @@ const AdminCashback: React.FC = () => {
                     <li>Pastikan jumlah ≥20 sebelum berikan cashback</li>
                   </ol>
                 </div>
-
-                <div>
-                  <b>Cashback:</b>
+                <div><b>Cashback:</b>
                   <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
                     <li><b>Joiner A</b> (pemberi rekomendasi): Rp100.000</li>
                     <li><b>Joiner B</b> (PIC Sekolah B): Rp100.000</li>
@@ -378,7 +322,6 @@ const AdminCashback: React.FC = () => {
               </div>
             </div>
 
-            {/* Aturan Penting */}
             <div className="rounded-3xl bg-red-900/20 border border-red-800 p-6">
               <h3 className="text-xl font-bold text-red-400 mb-4">⚠️ Aturan Penting Saat Pembayaran</h3>
               <div className="text-sm text-red-200 space-y-2">
@@ -389,7 +332,6 @@ const AdminCashback: React.FC = () => {
                   <li>Tidak ada duplikasi klaim</li>
                   <li>Pembayaran hanya tanggal 1–5 setiap bulan</li>
                 </ul>
-                
                 <div className="mt-3"><b>❌ JANGAN Bayar Jika:</b></div>
                 <ul className="list-disc list-inside ml-4 space-y-1">
                   <li>User belum bayar (hanya input kode diskon)</li>
@@ -404,7 +346,6 @@ const AdminCashback: React.FC = () => {
 
         {activeTab === "template" && (
           <div className="space-y-6">
-            {/* Template Cashback Per User */}
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
               <h3 className="text-xl font-bold text-green-400 mb-4">📝 Template Validasi: Cashback Per User</h3>
               <div className="bg-black/30 p-4 rounded-lg text-sm text-zinc-300 font-mono">
@@ -416,8 +357,6 @@ const AdminCashback: React.FC = () => {
                 [ ] Sudah transfer? [ ] Ya [ ] Belum
               </div>
             </div>
-
-            {/* Template Cashback Antar Sekolah */}
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
               <h3 className="text-xl font-bold text-purple-400 mb-4">📝 Template Validasi: Cashback Antar Sekolah</h3>
               <div className="bg-black/30 p-4 rounded-lg text-sm text-zinc-300 font-mono">
@@ -430,8 +369,6 @@ const AdminCashback: React.FC = () => {
                 [ ] Sudah transfer keduanya? [ ] Ya [ ] Belum
               </div>
             </div>
-
-            {/* Tips Efisiensi */}
             <div className="rounded-3xl bg-blue-900/20 border border-blue-800 p-6">
               <h3 className="text-xl font-bold text-blue-400 mb-4">💡 Tips Efisiensi</h3>
               <ul className="text-sm text-blue-200 space-y-2 list-disc list-inside">
@@ -450,27 +387,17 @@ const AdminCashback: React.FC = () => {
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-black tracking-tight">
-          Admin Cashback Tracker
-        </h1>
-        <p className="text-zinc-400 mt-3">
-          Hitung cashback untuk joiner berdasarkan user premium aktif
-        </p>
+        <h1 className="text-4xl font-black tracking-tight">Admin Cashback Tracker</h1>
+        <p className="text-zinc-400 mt-3">Hitung cashback untuk joiner berdasarkan user premium aktif</p>
       </div>
-
       {!isAdmin ? (
         <div className="rounded-3xl bg-red-900/50 border border-red-800 p-8 text-center">
           <h2 className="text-2xl font-bold text-red-300 mb-4">⚠️ Akses Ditolak</h2>
-          <p className="text-red-200">
-            Hanya admin yang bisa mengakses halaman ini.
-          </p>
-          <p className="text-red-100 mt-2">
-            Login dengan email: tkasmp25.monitoringpremium@gmail.com
-          </p>
+          <p className="text-red-200">Hanya admin yang bisa mengakses halaman ini.</p>
+          <p className="text-red-100 mt-2">Login dengan email: tkasmp25.monitoringpremium@gmail.com</p>
         </div>
       ) : (
         <>
-          {/* Navbar SOP */}
           <div className="flex justify-center mb-8">
             <div className="inline-flex bg-zinc-800 rounded-full p-1">
               <button
@@ -495,8 +422,6 @@ const AdminCashback: React.FC = () => {
               </button>
             </div>
           </div>
-
-          {/* Konten Utama */}
           {renderSOPContent()}
         </>
       )}
