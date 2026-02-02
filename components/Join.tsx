@@ -94,7 +94,7 @@ const Join: React.FC = () => {
       "",
       `Kode Diskon: ${joinCode}`,
       "",
-      "Website: https://tkasmp.netlify.app",
+      "Website: https://tkasmp-latihan.vercel.app",
       "",
       "Catatan: masukkan kode diskon ini di halaman Premium sebelum bayar ya 🙏",
     ].join("\n");
