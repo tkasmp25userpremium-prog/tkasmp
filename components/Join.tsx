@@ -1,4 +1,4 @@
-// components/Join.tsx
+// components/Join.tsx (FINAL)
 import React, { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
@@ -9,7 +9,7 @@ import { registerJoiner } from "../firebase/joiner";
 const JOIN_CODE_KEY = "tka_smp_joiner_code_v1";
 
 // ✅ Kalau form joiner NONAKTIF, biarkan string kosong
-const JOINER_FORM_URL = ""; // "https://forms.gle/xxxxx  "
+const JOINER_FORM_URL = ""; // "https://forms.gle/xxxxx"
 
 const Join: React.FC = () => {
   const [msg, setMsg] = useState("");
@@ -28,6 +28,9 @@ const Join: React.FC = () => {
   const [whatsapp, setWhatsapp] = useState("");
   const [bankAccount, setBankAccount] = useState("");
   const [recommenderCode, setRecommenderCode] = useState("");
+
+  // ✅ State untuk menampilkan penjelasan
+  const [showExplanation, setShowExplanation] = useState(false);
 
   const whatsappValid = useMemo(() => {
     const clean = whatsapp.replace(/[^0-9]/g, "");
@@ -112,7 +115,7 @@ const Join: React.FC = () => {
         school: school.trim(),
         whatsapp: whatsapp.trim(),
         bankAccount: bankAccount.trim(),
-        recommenderCode: recommenderCode.trim(),
+        recommenderCode: recommenderCode.trim(), // ✅ SUDAH DITAMBAHKAN
         updatedAt: new Date().toISOString(),
       });
 
@@ -141,11 +144,163 @@ const Join: React.FC = () => {
       "",
       `Kode Diskon: ${joinCode}`,
       "",
-      "Website: https://tkasmp-latihan.vercel.app  ",
+      "Website: https://tkasmp-latihan.vercel.app",
       "",
       "Catatan: masukkan kode diskon ini di halaman Premium sebelum bayar ya 🙏",
     ].join("\n");
   }, [joinCode]);
+
+  // ✅ Render Penjelasan Program
+  const renderExplanation = () => (
+    <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
+      <div className="text-center mb-6">
+        <h2 className="text-2xl font-black text-blue-400">🎁 Program Joiner (Cashback) — TKA SMP</h2>
+        <p className="text-zinc-400 mt-2">Skema Cashback Joiner TKA SMP</p>
+      </div>
+
+      <div className="space-y-6 text-sm text-zinc-300">
+        <div>
+          <h3 className="text-lg font-bold text-green-400 mb-3">🔹 A. Cashback per User</h3>
+          <ul className="list-disc list-inside space-y-2 ml-4">
+            <li>Rp10.000 untuk setiap 1 user premium AKTIF</li>
+            <li>User premium WAJIB mengisi Kode Joiner / Kode Diskon Joiner pada saat pembayaran dan Form Konfirmasi Pembayaran</li>
+            <li>User premium dinyatakan AKTIF setelah:
+              <ul className="list-circle list-inside mt-1 ml-4">
+                <li>Pembayaran tervalidasi</li>
+                <li>Premium diaktifkan oleh admin TKA SMP</li>
+              </ul>
+            </li>
+            <li>Cashback dihitung berdasarkan data validasi internal admin TKA SMP</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-purple-400 mb-3">🔹 B. Cashback Antar Sekolah (Khusus rekomendasi lintas sekolah)</h3>
+          <p className="mb-3">Cashback antar sekolah diberikan apabila terjadi rekomendasi dari satu sekolah ke sekolah lain dengan ketentuan:</p>
+          
+          <div className="bg-purple-900/20 border border-purple-800 rounded-lg p-4 mb-4">
+            <h4 className="font-bold text-purple-300 mb-2">✅ Syarat Umum</h4>
+            <ul className="list-disc list-inside space-y-1 ml-4">
+              <li>Joiner dari Sekolah A merekomendasikan TKA SMP ke Sekolah B</li>
+              <li>Dari Sekolah B terdapat minimal 1 orang mendaftar sebagai joiner</li>
+              <li>Joiner Sekolah B menggunakan Kode Joiner Sekolah A saat pendaftaran</li>
+              <li>Sekolah B menghasilkan minimal 20 user premium AKTIF</li>
+            </ul>
+          </div>
+
+          <div className="mb-4">
+            <h4 className="font-bold text-purple-300 mb-2">🔹 B1. Penerima Cashback Antar Sekolah (2 Orang)</h4>
+            
+            <div className="ml-4 space-y-3">
+              <div className="bg-purple-900/10 border border-purple-700 rounded-lg p-3">
+                <h5 className="font-bold text-purple-200">🎯 Orang ke-1 — JOINER SEKOLAH A (Pemberi Rekomendasi)</h5>
+                <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                  <li>Cashback antar sekolah diberikan kepada JOINER dari SEKOLAH ASAL (Sekolah A) yang kodenya digunakan oleh minimal 1 joiner dari Sekolah B</li>
+                  <li>Sekolah B menghasilkan minimal 20 user premium AKTIF</li>
+                  <li>Besaran cashback: Rp100.000</li>
+                </ul>
+              </div>
+
+              <div className="bg-purple-900/10 border border-purple-700 rounded-lg p-3">
+                <h5 className="font-bold text-purple-200">🎯 Orang ke-2 — JOINER SEKOLAH B (PIC Sekolah)</h5>
+                <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                  <li>Cashback antar sekolah juga diberikan kepada JOINER dari SEKOLAH YANG DIREKOMENDASIKAN (Sekolah B) yang mendaftar Program Joiner menggunakan Kode Joiner Sekolah A</li>
+                  <li>Sekolah B menghasilkan minimal 20 user premium AKTIF</li>
+                  <li>Joiner ini ditetapkan sebagai PIC Sekolah B</li>
+                  <li>Besaran cashback: Rp100.000</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-purple-900/20 border border-purple-800 rounded-lg p-4">
+            <h4 className="font-bold text-purple-300 mb-2">📌 Ketentuan Tambahan</h4>
+            <ul className="list-disc list-inside space-y-1 ml-4">
+              <li>Cashback antar sekolah diberikan setelah Sekolah B menghasilkan minimal 20 user premium AKTIF</li>
+              <li>Jika terdapat lebih dari satu joiner dari sekolah yang sama:
+                <ul className="list-circle list-inside mt-1 ml-4">
+                  <li>Penetapan PIC Sekolah</li>
+                  <li>Penentuan penerima cashback antar sekolah sepenuhnya ditentukan oleh admin TKA SMP berdasarkan data tervalidasi (kode joiner yang pertama kali terdaftar di sekolah B)</li>
+                  <li>Joiner lainnya tetap mendapatkan cashback per user premium aktif sesuai ketentuan</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <div className="bg-blue-900/20 border border-blue-800 rounded-lg p-4">
+          <h3 className="text-lg font-bold text-blue-400 mb-3">✅ Informasi Pencairan Cashback</h3>
+          <ul className="list-disc list-inside space-y-1 ml-4">
+            <li>Cashback dihitung per user</li>
+            <li>Cashback dihitung per sekolah</li>
+            <li>Cashback dihitung per tanggal 1–5 setiap bulan</li>
+            <li>Cashback dibayarkan tanggal 1–5 setiap bulan (untuk transaksi bulan sebelumnya)</li>
+          </ul>
+        </div>
+
+        <div className="bg-red-900/20 border border-red-800 rounded-lg p-4">
+          <h3 className="text-lg font-bold text-red-400 mb-3">⚠️ Catatan Penting</h3>
+          <ul className="list-disc list-inside space-y-1 ml-4">
+            <li>Cashback diberikan berdasarkan Kode Joiner / Kode Diskon Joiner yang diinput pada Google Form Konfirmasi Pembayaran</li>
+            <li>Data cashback yang digunakan adalah data internal admin TKA SMP, bukan hanya berdasarkan isian form</li>
+            <li>Keputusan validasi cashback sepenuhnya dilakukan oleh admin TKA SMP</li>
+          </ul>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-yellow-400 mb-3">❓ FAQ & Contoh Kasus</h3>
+          <div className="space-y-4">
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">📌 Contoh Kasus 1 (REKOMENDASI ANTAR SEKOLAH)</h4>
+              <p className="mt-2">Sekolah A → Sekolah B</p>
+              <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                <li>Joiner A (Sekolah A) punya kode: TKA-A111</li>
+                <li>Joiner A merekomendasikan TKA SMP ke Sekolah B</li>
+                <li>Joiner B (Sekolah B) mendaftar joiner dan mengisi kode: TKA-A111</li>
+                <li>Sekolah B menghasilkan 20 user premium AKTIF</li>
+              </ul>
+              <p className="mt-3 font-bold text-green-400">➡️ Hasil:</p>
+              <ul className="list-disc list-inside mt-1 space-y-1 ml-4">
+                <li>Joiner A → Rp100.000 cashback antar sekolah</li>
+                <li>Joiner B (PIC Sekolah B) → Rp100.000 cashback antar sekolah</li>
+              </ul>
+            </div>
+
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">❓ Kalau Sekolah B tidak mencapai 20 user premium?</h4>
+              <p className="font-bold text-red-400">➡️ Cashback antar sekolah TIDAK dibayarkan ➡️ Cashback per user tetap berjalan</p>
+            </div>
+
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">❓ Kalau ada 2 joiner dari Sekolah A merekomendasikan Sekolah B?</h4>
+              <p className="font-bold text-blue-400">➡️ Joiner Sekolah A penerima cashback ditentukan oleh admin berdasarkan kode joiner yang pertama kali ditulis</p>
+            </div>
+
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">❓ Kalau ada 2 joiner dari Sekolah B yang di rekomendasikan Sekolah A?</h4>
+              <p className="font-bold text-blue-400">➡️ PIC Sekolah B ditentukan oleh admin berdasarkan kode joiner yang pertama kali ditulis</p>
+            </div>
+
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">❓ Apakah user premium menentukan PIC?</h4>
+              <p className="font-bold text-blue-400">➡️ TIDAK, PIC ditentukan dari data joiner, bukan user premium</p>
+            </div>
+
+            <div className="bg-yellow-900/10 border border-yellow-700 rounded-lg p-3">
+              <h4 className="font-bold text-yellow-300">❓ Apakah joiner lain tetap dapat cashback?</h4>
+              <p className="font-bold text-green-400">➡️ YA, Cashback per user premium tetap berjalan normal</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gray-800 border border-gray-700 rounded-lg p-4">
+          <h3 className="text-lg font-bold text-gray-300 mb-3">🔒 Penentuan PIC dan penerima cashback antar sekolah sepenuhnya ditentukan oleh admin TKA SMP berdasarkan data tervalidasi (kode joiner yang pertama kali ditulis)</h3>
+          <p className="font-bold text-red-400">🔒 TKA SMP berhak menunda atau membatalkan cashback apabila ditemukan indikasi manipulasi data, duplikasi kode, atau aktivitas tidak wajar.</p>
+          <p className="font-bold text-green-400">🔒 Dengan mengisi formulir ini, joiner dianggap telah membaca dan menyetujui seluruh ketentuan Program Joiner (Cashback) TKA SMP.</p>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-10">
@@ -157,6 +312,19 @@ const Join: React.FC = () => {
           Login Google untuk mendapatkan <b>Kode Diskon</b>.
         </p>
       </div>
+
+      {/* ✅ Navbar untuk penjelasan program */}
+      <div className="flex justify-center mb-8">
+        <button
+          onClick={() => setShowExplanation(!showExplanation)}
+          className="px-6 py-3 rounded-xl font-black bg-blue-500 text-black hover:opacity-90"
+        >
+          {showExplanation ? "Tutup Penjelasan" : "Lihat Penjelasan Program"}
+        </button>
+      </div>
+
+      {/* ✅ Tampilkan penjelasan jika showExplanation true */}
+      {showExplanation && renderExplanation()}
 
       <div className="grid md:grid-cols-2 gap-6">
         <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
@@ -300,11 +468,7 @@ const Join: React.FC = () => {
                   >
                     Isi Form Joiner Cashback
                   </a>
-                ) : (
-                  <div className="text-xs text-zinc-500">
-                    Form Joiner sedang dinonaktifkan oleh admin.
-                  </div>
-                )}
+                ) : null} {/* ✅ TELAH DIHAPUS: teks "dinonaktifkan oleh admin" */}
               </div>
             </div>
           )}
