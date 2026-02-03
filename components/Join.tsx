@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, updateDoc } from "firebase/firestore";
-import { loginGoogle, logoutGoogle } from "../premiumstore";
+import { loginGoogle, logoutGoogle } from "./premiumstore";
 import { registerJoiner } from "../firebase/joiner";
 
 const JOIN_CODE_KEY = "tka_smp_joiner_code_v1";
