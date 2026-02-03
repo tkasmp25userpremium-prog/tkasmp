@@ -1,6 +1,6 @@
-import { auth } from "./firebase";
+import { auth } from "../firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "../firebase";
 import { signOut } from "firebase/auth";
 
 // === STATE PREMIUM ===
