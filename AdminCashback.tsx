@@ -1,4 +1,4 @@
-// src/pages/AdminCashback.tsx
+// AdminCashback.tsx (FINAL)
 import React, { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
@@ -190,6 +190,7 @@ const AdminCashback: React.FC = () => {
                     <th className="px-4 py-3">Nama</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Kode Joiner</th>
+                    <th className="px-4 py-3">Rekomendasi</th> {/* ✅ Ditambahkan */}
                     <th className="px-4 py-3">Sekolah</th>
                     <th className="px-4 py-3">Rekening</th>
                     <th className="px-4 py-3">Total Used</th>
@@ -200,7 +201,8 @@ const AdminCashback: React.FC = () => {
                     <tr key={index} className="border-b border-zinc-700 hover:bg-zinc-800">
                       <td className="px-4 py-3">{joiner.name || "-"}</td>
                       <td className="px-4 py-3">{joiner.email}</td>
-                      <td className="px-4 py-3 font-mono">{joiner.joinCode}</td>
+                      <td className="px-4 py-3 font-mono">{joiner.joinCode || "-"}</td>
+                      <td className="px-4 py-3 font-mono">{joiner.recommenderCode || "-"}</td> {/* ✅ Ditambahkan */}
                       <td className="px-4 py-3">{joiner.school || "-"}</td>
                       <td className="px-4 py-3">{joiner.bankAccount || "-"}</td>
                       <td className="px-4 py-3">{joiner.totalUsed || 0}</td>
@@ -223,6 +225,7 @@ const AdminCashback: React.FC = () => {
                   <div><span className="text-zinc-400">Nama:</span> <span className="text-white">{result.joinerData?.name || "-"}</span></div>
                   <div><span className="text-zinc-400">Email:</span> <span className="text-white">{result.joinerData?.email || "-"}</span></div>
                   <div><span className="text-zinc-400">Kode Joiner:</span> <span className="text-white font-mono">{result.joinerData?.joinCode || "-"}</span></div>
+                  <div><span className="text-zinc-400">Kode Rekomendasi:</span> <span className="text-white font-mono">{result.joinerData?.recommenderCode || "-"}</span></div> {/* ✅ Ditambahkan */}
                   <div><span className="text-zinc-400">Sekolah:</span> <span className="text-white">{result.joinerData?.school || "-"}</span></div>
                   <div><span className="text-zinc-400">WhatsApp:</span> <span className="text-white">{result.joinerData?.whatsapp || "-"}</span></div>
                   <div><span className="text-zinc-400">Rekening/E-wallet:</span> <span className="text-white">{result.joinerData?.bankAccount || "-"}</span></div>
