@@ -1,6 +1,6 @@
-// src/firebase/index.ts (FINAL)
+// firebase/index.ts (FINAL)
 import { initializeApp, getApp, getApps } from "firebase/app";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";  // ✅ Tambahkan onAuthStateChanged
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
@@ -17,3 +17,6 @@ export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+
+// ✅ EXPORT FUNGSI YANG DIGUNAKAN DI COMPONENT
+export { onAuthStateChanged };  // ✅ Tambahkan ini
