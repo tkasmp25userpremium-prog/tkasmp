@@ -1,273 +1,164 @@
-// AdminCashback.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { db, auth } from "./firebase";
-import { onAuthStateChanged } from "firebase/auth";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  updateDoc,
-  orderBy,
-  limit,
-} from "firebase/firestore";
-
-type JoinerRow = {
-  id: string;
-  name?: string;
-  email?: string;
-  joinCode?: string;
-  school?: string;
-  whatsapp?: string;
-  bankAccount?: string;
-  totalUsed?: number;
-};
-
-type Result = {
-  totalUsers: number;
-  premiumActive: number;
-  premiumInactive: number;
-  joinerData: JoinerRow | null;
-};
-
-const ADMIN_EMAILS = ["tkasmp25.monitoringpremium@gmail.com"]; // <- kalau mau tambah admin: ["a@gmail.com","b@gmail.com"]
-
-const CASHBACK_PER_USER = 10000;
-
-const rupiah = (n: number) =>
-  new Intl.NumberFormat("id-ID", {
-    style: "currency",
-    currency: "IDR",
-    minimumFractionDigits: 0,
-  }).format(n);
+// src/pages/AdminCashback.tsx
+import React, { useState, useEffect } from "react";
+import { db } from "./firebase";
+import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
+import { auth, onAuthStateChanged } from "./firebase";
 
 const AdminCashback: React.FC = () => {
   const [joinCode, setJoinCode] = useState("");
-  const [allJoiners, setAllJoiners] = useState<JoinerRow[]>([]);
-  const [result, setResult] = useState<Result | null>(null);
-
+  const [allJoiners, setAllJoiners] = useState<any[]>([]);
+  const [result, setResult] = useState<{
+    totalUsers: number;
+    premiumActive: number;
+    premiumInactive: number;
+    joinerData: any;
+  } | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
-  const [adminEmail, setAdminEmail] = useState("");
-
   const [waMessage, setWaMessage] = useState("");
-  const [tab, setTab] = useState<"cashback" | "sop">("cashback");
+  
+  // ✅ State untuk SOP
+  const [activeTab, setActiveTab] = useState<"cashback" | "sop">("cashback");
 
-  const totalCashback = useMemo(
-    () => (result ? result.premiumActive * CASHBACK_PER_USER : 0),
-    [result]
-  );
-
+  // ✅ Cek apakah user adalah admin
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      const email = (user?.email || "").toLowerCase().trim();
-      setAdminEmail(email);
-      const ok = !!email && ADMIN_EMAILS.includes(email);
-      setIsAdmin(ok);
-      if (ok) loadAllJoiners().catch(() => {});
-      if (!ok) {
-        setAllJoiners([]);
-        setResult(null);
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user && user.email === "tkasmp25.monitoringpremium@gmail.com") {
+        setIsAdmin(true);
+        loadAllJoiners();
+      } else {
+        setIsAdmin(false);
       }
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
+  // ✅ Load semua joiner
   const loadAllJoiners = async () => {
     try {
-      setMessage("");
-      // Ambil joiners (kalau koleksi banyak, ini masih aman; bisa dioptimasi nanti)
-      const q = query(collection(db, "joiners"), orderBy("joinCode"), limit(5000));
+      const q = query(collection(db, "joiners"));
       const snapshot = await getDocs(q);
-      const joiners: JoinerRow[] = snapshot.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as any),
+      const joiners = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
       }));
       setAllJoiners(joiners);
-    } catch (e) {
-      console.error(e);
-      setMessage("❌ Gagal load joiners. Cek Firestore Rules / koneksi.");
+    } catch (error) {
+      console.error("Error loading joiners:", error);
     }
   };
 
-  const findJoinerByCode = async (code: string): Promise<JoinerRow | null> => {
-    const qj = query(collection(db, "joiners"), where("joinCode", "==", code));
-    const snap = await getDocs(qj);
-    if (snap.empty) return null;
-    const d = snap.docs[0];
-    return { id: d.id, ...(d.data() as any) };
-  };
-
-  const countUsersByJoinCode = async (code: string) => {
-    const qu = query(collection(db, "users"), where("joinCode", "==", code));
-    const snap = await getDocs(qu);
-
-    const totalUsers = snap.size;
-
-    const premiumActive = snap.docs.filter((d) => {
-      const data: any = d.data();
-      const isPremium = data.isPremium === true;
-      const activeUntil = data.activeUntil ? Number(data.activeUntil) : 0;
-      return isPremium && activeUntil > Date.now();
-    }).length;
-
-    return { totalUsers, premiumActive, premiumInactive: totalUsers - premiumActive };
-  };
-
-  const generateWaMessage = (joinerData: JoinerRow | null, code: string, activeCount: number) => {
-    const nama =
-      joinerData?.name ||
-      (joinerData?.email ? joinerData.email.split("@")[0] : "") ||
-      "Joiner";
-
-    const total = activeCount * CASHBACK_PER_USER;
-
-    const msg = [
-      `Halo ${nama} 👋`,
-      ``,
-      `Cashback kamu sudah siap! 💰`,
-      ``,
-      `📊 Rincian:`,
-      `• Kode Joiner: ${joinerData?.joinCode || code}`,
-      `• User Premium Aktif: ${activeCount} orang`,
-      `• Cashback per user: ${rupiah(CASHBACK_PER_USER)}`,
-      `• Total Cashback: ${rupiah(total)}`,
-      ``,
-      `📌 Data rekening/e-wallet kamu yang tercatat:`,
-      `${joinerData?.bankAccount ? `• ${joinerData.bankAccount}` : "• (Belum ada, kirim ya)"} `,
-      ``,
-      `Kalau sudah benar, admin akan transfer hari ini/ jadwal batch pembayaran. 🙏`,
-      `Terima kasih sudah jadi joiner TKA SMP!`,
-    ].join("\n");
-
-    setWaMessage(msg);
-  };
-
   const hitungCashback = async () => {
-    const code = joinCode.trim().toUpperCase();
-    if (!code) {
-      setMessage("❌ Masukkan kode joiner dulu.");
+    if (!joinCode.trim()) {
+      setMessage("❌ Masukkan kode joiner!");
       return;
     }
 
     setLoading(true);
     setMessage("");
-    setResult(null);
-    setWaMessage("");
 
     try {
-      const joinerData = await findJoinerByCode(code);
-      const { totalUsers, premiumActive, premiumInactive } = await countUsersByJoinCode(code);
+      // Query user yang pakai kode joiner
+      const usersQuery = query(
+        collection(db, "users"),
+        where("joinCode", "==", joinCode.trim())
+      );
+      const usersSnapshot = await getDocs(usersQuery);
+      const totalUsers = usersSnapshot.size;
 
-      setResult({ totalUsers, premiumActive, premiumInactive, joinerData });
-      setMessage(`✅ Ditemukan ${totalUsers} user dengan kode ${code}. Premium aktif: ${premiumActive}.`);
+      // Filter user yang premium aktif
+      const premiumActive = usersSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.isPremium === true && (data.activeUntil || 0) > Date.now();
+      }).length;
 
-      generateWaMessage(joinerData, code, premiumActive);
-    } catch (e: any) {
-      console.error(e);
-      setMessage(`❌ Error: ${e?.message || "Gagal menghitung cashback"}`);
+      // Cari data joiner (termasuk rekening)
+      const joinersQuery = query(
+        collection(db, "joiners"),
+        where("joinCode", "==", joinCode.trim())
+      );
+      const joinersSnapshot = await getDocs(joinersQuery);
+      const joinerData = joinersSnapshot.docs[0]?.data() || {};
+
+      setResult({
+        totalUsers,
+        premiumActive,
+        premiumInactive: totalUsers - premiumActive,
+        joinerData
+      });
+
+      setMessage(`✅ Ditemukan ${totalUsers} user dengan kode ${joinCode}`);
+      
+      // Generate pesan WA
+      generateWaMessage(joinerData, premiumActive);
+    } catch (error) {
+      setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal menghitung"}`);
     } finally {
       setLoading(false);
     }
   };
 
+  const generateWaMessage = (joinerData: any, premiumActive: number) => {
+    const nama = joinerData?.name || joinerData?.email?.split('@')[0] || "Joiner";
+    const kode = joinerData?.joinCode || joinCode;
+    const totalCashback = premiumActive * 10000;
+    
+    const message = `Halo ${nama} 👋\n\nCashback kamu sudah siap! 💰\n\n📊 Rincian:\n• Kode Joiner: ${kode}\n• User Premium Aktif: ${premiumActive} orang\n• Cashback Per User: Rp10.000\n• Total Cashback: Rp${totalCashback.toLocaleString('id-ID')}\n\n💰 Total yang akan dibayarkan: Rp${totalCashback.toLocaleString('id-ID')}\n\nSilakan konfirmasi nomor rekening/e-wallet ya!\nTerima kasih sudah menjadi joiner TKA SMP! 🙏`;
+    
+    setWaMessage(message);
+  };
+
   const updateTotalUsed = async () => {
-    const code = joinCode.trim().toUpperCase();
     if (!result) return;
 
     setLoading(true);
     setMessage("");
 
     try {
-      const joinerData = await findJoinerByCode(code);
-      if (!joinerData?.id) {
-        setMessage("❌ Joiner tidak ditemukan (joinCode tidak ada di koleksi joiners).");
+      const joinersQuery = query(
+        collection(db, "joiners"),
+        where("joinCode", "==", joinCode.trim())
+      );
+      const joinersSnapshot = await getDocs(joinersQuery);
+
+      if (joinersSnapshot.empty) {
+        setMessage("❌ Joiner tidak ditemukan!");
         return;
       }
 
-      const joinerRef = doc(db, "joiners", joinerData.id);
-      await updateDoc(joinerRef, { totalUsed: result.premiumActive });
+      const joinerDoc = joinersSnapshot.docs[0];
+      const joinerRef = doc(db, "joiners", joinerDoc.id);
+
+      await updateDoc(joinerRef, {
+        totalUsed: result.premiumActive,
+      });
 
       setMessage(`✅ totalUsed berhasil diupdate menjadi ${result.premiumActive}`);
-      // refresh list biar tabel ikut update
-      loadAllJoiners().catch(() => {});
-    } catch (e: any) {
-      console.error(e);
-      setMessage(`❌ Error update totalUsed: ${e?.message || "Gagal update"}`);
+    } catch (error) {
+      setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal update"}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const copyText = async (text: string) => {
-    if (!text) return;
+  const copyWaMessage = async () => {
+    if (!waMessage) return;
     try {
-      await navigator.clipboard.writeText(text);
-      setMessage("✅ Berhasil dicopy.");
-      setTimeout(() => setMessage(""), 1800);
-    } catch {
-      setMessage("❌ Gagal copy (browser tidak mendukung clipboard).");
+      await navigator.clipboard.writeText(waMessage);
+      setMessage("✅ Pesan WhatsApp berhasil dicopy!");
+      setTimeout(() => setMessage(""), 2000);
+    } catch (error) {
+      setMessage("❌ Gagal copy pesan WhatsApp");
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <div className="max-w-5xl mx-auto px-6 py-10">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-black tracking-tight">Admin Cashback Tracker</h1>
-          <p className="text-zinc-400 mt-3">Hanya admin yang bisa akses halaman ini.</p>
-        </div>
-
-        <div className="rounded-3xl bg-red-900/40 border border-red-800 p-8 text-center">
-          <h2 className="text-2xl font-bold text-red-200 mb-3">⚠️ Akses Ditolak</h2>
-          <p className="text-red-100">
-            Login Google dulu dengan email admin.
-          </p>
-          <p className="text-red-100 mt-2">
-            Email kamu sekarang: <b>{adminEmail || "-"}</b>
-          </p>
-          <p className="text-red-100 mt-2">
-            Admin whitelist: <b>{ADMIN_EMAILS.join(", ")}</b>
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="max-w-6xl mx-auto px-6 py-10">
-      <div className="text-center mb-8">
-        <h1 className="text-4xl font-black tracking-tight">Admin Cashback Tracker</h1>
-        <p className="text-zinc-400 mt-3">Hitung cashback joiner berdasarkan user premium aktif</p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex justify-center mb-8">
-        <div className="inline-flex bg-zinc-800 rounded-full p-1">
-          <button
-            onClick={() => setTab("cashback")}
-            className={`px-6 py-3 rounded-full font-bold transition-all ${
-              tab === "cashback" ? "bg-white text-black" : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            Hitung Cashback
-          </button>
-          <button
-            onClick={() => setTab("sop")}
-            className={`px-6 py-3 rounded-full font-bold transition-all ${
-              tab === "sop" ? "bg-blue-500 text-black" : "text-zinc-400 hover:text-white"
-            }`}
-          >
-            SOP Admin
-          </button>
-        </div>
-      </div>
-
-      {tab === "cashback" && (
+  // ✅ Render SOP Content
+  const renderSOPContent = () => {
+    if (activeTab === "cashback") {
+      return (
         <div className="space-y-6">
-          {/* Input */}
+          {/* Input Kode Joiner */}
           <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
             <div className="text-lg font-bold mb-4">Cari Kode Joiner</div>
             <div className="flex gap-3">
@@ -286,88 +177,59 @@ const AdminCashback: React.FC = () => {
                 {loading ? "Loading..." : "Cari"}
               </button>
             </div>
-            {message && <div className="mt-4 text-sm text-yellow-300 whitespace-pre-line">{message}</div>}
+            {message && <div className="mt-4 text-sm text-yellow-300">{message}</div>}
           </div>
 
-          {/* Table */}
+          {/* Daftar Semua Kode Joiner */}
           <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
-            <div className="flex items-center justify-between mb-4">
-              <div className="text-lg font-bold">Daftar Semua Kode Joiner</div>
-              <button
-                onClick={() => loadAllJoiners()}
-                className="text-xs font-black px-4 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700"
-              >
-                Refresh
-              </button>
-            </div>
+            <div className="text-lg font-bold mb-4">Daftar Semua Kode Joiner</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left text-zinc-300">
                 <thead className="text-xs uppercase bg-zinc-800">
                   <tr>
                     <th className="px-4 py-3">Nama</th>
                     <th className="px-4 py-3">Email</th>
-                    <th className="px-4 py-3">Kode</th>
+                    <th className="px-4 py-3">Kode Joiner</th>
                     <th className="px-4 py-3">Sekolah</th>
                     <th className="px-4 py-3">Rekening</th>
-                    <th className="px-4 py-3">totalUsed</th>
+                    <th className="px-4 py-3">Total Used</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {allJoiners.map((j) => (
-                    <tr key={j.id} className="border-b border-zinc-700 hover:bg-zinc-800">
-                      <td className="px-4 py-3">{j.name || "-"}</td>
-                      <td className="px-4 py-3">{j.email || "-"}</td>
-                      <td className="px-4 py-3 font-mono">{j.joinCode || "-"}</td>
-                      <td className="px-4 py-3">{j.school || "-"}</td>
-                      <td className="px-4 py-3">{j.bankAccount || "-"}</td>
-                      <td className="px-4 py-3">{j.totalUsed || 0}</td>
+                  {allJoiners.map((joiner, index) => (
+                    <tr key={index} className="border-b border-zinc-700 hover:bg-zinc-800">
+                      <td className="px-4 py-3">{joiner.name || "-"}</td>
+                      <td className="px-4 py-3">{joiner.email}</td>
+                      <td className="px-4 py-3 font-mono">{joiner.joinCode}</td>
+                      <td className="px-4 py-3">{joiner.school || "-"}</td>
+                      <td className="px-4 py-3">{joiner.bankAccount || "-"}</td>
+                      <td className="px-4 py-3">{joiner.totalUsed || 0}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {allJoiners.length === 0 && (
-                <div className="text-center text-zinc-500 py-6">Belum ada data joiner.</div>
-              )}
             </div>
           </div>
 
-          {/* Result */}
+          {/* Hasil Hitung + Data Rekening */}
           {result && (
             <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
-              <div className="text-lg font-bold mb-4">Hasil Hitung</div>
-
+              <div className="text-lg font-bold mb-4">Hasil Hitung & Data Rekening</div>
+              
+              {/* Data Joiner */}
               <div className="mb-6 p-4 bg-black/30 rounded-lg">
                 <h3 className="text-lg font-bold mb-2">📋 Data Joiner</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-zinc-400">Nama:</span>{" "}
-                    <span className="text-white">{result.joinerData?.name || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Email:</span>{" "}
-                    <span className="text-white">{result.joinerData?.email || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Kode:</span>{" "}
-                    <span className="text-white font-mono">
-                      {result.joinerData?.joinCode || joinCode.trim().toUpperCase()}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Sekolah:</span>{" "}
-                    <span className="text-white">{result.joinerData?.school || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">WhatsApp:</span>{" "}
-                    <span className="text-white">{result.joinerData?.whatsapp || "-"}</span>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Rekening/E-wallet:</span>{" "}
-                    <span className="text-white">{result.joinerData?.bankAccount || "-"}</span>
-                  </div>
+                  <div><span className="text-zinc-400">Nama:</span> <span className="text-white">{result.joinerData?.name || "-"}</span></div>
+                  <div><span className="text-zinc-400">Email:</span> <span className="text-white">{result.joinerData?.email || "-"}</span></div>
+                  <div><span className="text-zinc-400">Kode Joiner:</span> <span className="text-white font-mono">{result.joinerData?.joinCode || "-"}</span></div>
+                  <div><span className="text-zinc-400">Sekolah:</span> <span className="text-white">{result.joinerData?.school || "-"}</span></div>
+                  <div><span className="text-zinc-400">WhatsApp:</span> <span className="text-white">{result.joinerData?.whatsapp || "-"}</span></div>
+                  <div><span className="text-zinc-400">Rekening/E-wallet:</span> <span className="text-white">{result.joinerData?.bankAccount || "-"}</span></div>
                 </div>
               </div>
 
+              {/* Hasil Hitung */}
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Total user pakai kode:</span>
@@ -378,12 +240,12 @@ const AdminCashback: React.FC = () => {
                   <span className="text-green-400 font-bold">{result.premiumActive} orang ✅</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-zinc-400">User belum aktif:</span>
+                  <span className="text-zinc-400">User belum bayar/tidak aktif:</span>
                   <span className="text-red-400 font-bold">{result.premiumInactive} orang ❌</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Total Cashback:</span>
-                  <span className="text-yellow-400 font-bold">{rupiah(totalCashback)}</span>
+                  <span className="text-yellow-400 font-bold">Rp{(result.premiumActive * 10000).toLocaleString('id-ID')}</span>
                 </div>
               </div>
 
@@ -395,8 +257,9 @@ const AdminCashback: React.FC = () => {
                 >
                   {loading ? "Loading..." : `Update totalUsed = ${result.premiumActive}`}
                 </button>
+                
                 <button
-                  onClick={() => copyText(waMessage)}
+                  onClick={copyWaMessage}
                   disabled={!waMessage}
                   className="w-full py-4 rounded-lg font-black bg-blue-500 text-black hover:opacity-90 disabled:opacity-50"
                 >
@@ -406,51 +269,236 @@ const AdminCashback: React.FC = () => {
 
               {waMessage && (
                 <div className="mt-4 p-4 bg-black/30 rounded-lg">
-                  <div className="flex justify-between items-center mb-3">
-                    <div className="text-sm font-bold">Template WA</div>
-                    <button
-                      onClick={() => copyText(waMessage)}
-                      className="text-xs font-black px-3 py-2 rounded-full bg-zinc-800 hover:bg-zinc-700"
-                    >
-                      Copy
-                    </button>
-                  </div>
                   <div className="text-sm text-zinc-300 whitespace-pre-line">{waMessage}</div>
                 </div>
               )}
             </div>
           )}
         </div>
-      )}
+      );
+    }
 
-      {tab === "sop" && (
-        <div className="space-y-6">
-          <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
-            <h2 className="text-2xl font-black text-blue-400 mb-2">📋 SOP Admin Cashback</h2>
-            <p className="text-zinc-400">Panduan ringkas & aman untuk pembayaran cashback joiner</p>
-          </div>
-
-          <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
-            <h3 className="text-xl font-bold text-green-400 mb-4">💰 Cashback Per User</h3>
-            <ol className="text-sm text-zinc-300 space-y-3 list-decimal list-inside">
-              <li><b>Login admin</b> dengan email whitelist.</li>
-              <li><b>Input kode joiner</b> → klik <b>Cari</b>.</li>
-              <li><b>Pastikan premium aktif</b> (bukan cuma input join code).</li>
-              <li><b>Total cashback</b> = premium aktif × {rupiah(CASHBACK_PER_USER)}.</li>
-              <li>Klik <b>Update totalUsed</b> → sebagai catatan pembayaran.</li>
-              <li>Klik <b>Copy Pesan WA</b> → kirim ke joiner + transfer.</li>
-            </ol>
-          </div>
-
-          <div className="rounded-3xl bg-red-900/20 border border-red-800 p-6">
-            <h3 className="text-xl font-bold text-red-400 mb-4">⚠️ Jangan Bayar Jika</h3>
-            <ul className="text-sm text-red-200 space-y-2 list-disc list-inside">
-              <li>Rekening/e-wallet kosong / tidak valid.</li>
-              <li>Premium aktif = 0 (belum ada user premium aktif).</li>
-              <li>Ada indikasi manipulasi / duplikasi klaim.</li>
-            </ul>
-          </div>
+    // ✅ SOP Content
+    return (
+      <div className="space-y-6">
+        <div className="text-center">
+          <h2 className="text-3xl font-black text-blue-400 mb-4">📋 SOP Admin Cashback</h2>
+          <p className="text-zinc-400">Panduan lengkap untuk proses pembayaran cashback</p>
         </div>
+
+        {/* Tabs SOP */}
+        <div className="flex gap-4 border-b border-zinc-700 pb-4">
+          <button
+            onClick={() => setActiveTab("sop")}
+            className={`px-4 py-2 rounded-t-lg font-bold ${
+              activeTab === "sop" 
+                ? "bg-blue-500 text-black" 
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            SOP Lengkap
+          </button>
+          <button
+            onClick={() => setActiveTab("template")}
+            className={`px-4 py-2 rounded-t-lg font-bold ${
+              activeTab === "template" 
+                ? "bg-purple-500 text-black" 
+                : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            Template Validasi
+          </button>
+        </div>
+
+        {activeTab === "sop" && (
+          <div className="space-y-6">
+            {/* Cashback Per User */}
+            <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
+              <h3 className="text-xl font-bold text-green-400 mb-4">💰 Cashback Per User</h3>
+              <ol className="text-sm text-zinc-300 space-y-3 list-decimal list-inside">
+                <li>
+                  <b>Buka Admin Panel:</b> Login di <code className="bg-zinc-800 px-2 py-1 rounded">/admin-cashback</code>
+                </li>
+                <li>
+                  <b>Input Kode Joiner:</b> Masukkan kode joiner (contoh: TKA-ABC123)
+                </li>
+                <li>
+                  <b>Verifikasi Data:</b>
+                  <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                    <li>Nama joiner sesuai data</li>
+                    <li>Rekening/e-wallet valid</li>
+                    <li>User premium aktif ≥1 orang</li>
+                  </ul>
+                </li>
+                <li>
+                  <b>Hitung Cashback:</b> Jumlah user × Rp10.000
+                </li>
+                <li>
+                  <b>Proses Pembayaran:</b>
+                  <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                    <li>Klik "Update totalUsed"</li>
+                    <li>Klik "Copy Pesan WA"</li>
+                    <li>Transfer sesuai rekening yang muncul</li>
+                  </ul>
+                </li>
+              </ol>
+            </div>
+
+            {/* Cashback Antar Sekolah */}
+            <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
+              <h3 className="text-xl font-bold text-purple-400 mb-4">🏫 Cashback Antar Sekolah</h3>
+              <div className="text-sm text-zinc-300 space-y-3">
+                <div>
+                  <b>Syarat Wajib:</b>
+                  <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                    <li>Joiner A merekomendasikan ke Sekolah B</li>
+                    <li>Minimal 1 joiner dari Sekolah B mendaftar</li>
+                    <li>Joiner B isi kode rekomendasi dengan benar</li>
+                    <li><b>Sekolah B punya ≥20 user premium AKTIF</b></li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <b>Langkah Validasi:</b>
+                  <ol className="list-decimal list-inside mt-2 space-y-1 ml-4">
+                    <li>Cari joiner dengan <code className="bg-zinc-800 px-2 py-1 rounded">recommenderCode</code> ≠ kosong</li>
+                    <li>Buka Firestore Console → filter user by sekolah</li>
+                    <li>Hitung manual user premium aktif dari sekolah tersebut</li>
+                    <li>Pastikan jumlah ≥20 sebelum berikan cashback</li>
+                  </ol>
+                </div>
+
+                <div>
+                  <b>Cashback:</b>
+                  <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                    <li><b>Joiner A</b> (pemberi rekomendasi): Rp100.000</li>
+                    <li><b>Joiner B</b> (PIC Sekolah B): Rp100.000</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            {/* Aturan Penting */}
+            <div className="rounded-3xl bg-red-900/20 border border-red-800 p-6">
+              <h3 className="text-xl font-bold text-red-400 mb-4">⚠️ Aturan Penting Saat Pembayaran</h3>
+              <div className="text-sm text-red-200 space-y-2">
+                <div><b>✅ WAJIB Diverifikasi:</b></div>
+                <ul className="list-disc list-inside ml-4 space-y-1">
+                  <li>Rekening aktif & nama sesuai data joiner</li>
+                  <li>User benar-benar premium aktif (bukan hanya input kode)</li>
+                  <li>Tidak ada duplikasi klaim</li>
+                  <li>Pembayaran hanya tanggal 1–5 setiap bulan</li>
+                </ul>
+                
+                <div className="mt-3"><b>❌ JANGAN Bayar Jika:</b></div>
+                <ul className="list-disc list-inside ml-4 space-y-1">
+                  <li>User belum bayar (hanya input kode diskon)</li>
+                  <li>Rekening tidak valid/tidak aktif</li>
+                  <li>Ada indikasi manipulasi data</li>
+                  <li>Syarat antar sekolah belum terpenuhi</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === "template" && (
+          <div className="space-y-6">
+            {/* Template Cashback Per User */}
+            <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
+              <h3 className="text-xl font-bold text-green-400 mb-4">📝 Template Validasi: Cashback Per User</h3>
+              <div className="bg-black/30 p-4 rounded-lg text-sm text-zinc-300 font-mono">
+                [ ] Kode joiner: _________<br/>
+                [ ] Nama: _________<br/>
+                [ ] Rekening: _________<br/>
+                [ ] User premium aktif: ___ orang<br/>
+                [ ] Total cashback: Rp_________<br/>
+                [ ] Sudah transfer? [ ] Ya [ ] Belum
+              </div>
+            </div>
+
+            {/* Template Cashback Antar Sekolah */}
+            <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
+              <h3 className="text-xl font-bold text-purple-400 mb-4">📝 Template Validasi: Cashback Antar Sekolah</h3>
+              <div className="bg-black/30 p-4 rounded-lg text-sm text-zinc-300 font-mono">
+                [ ] Joiner A (pemberi): _________<br/>
+                [ ] Joiner B (PIC): _________<br/>
+                [ ] Sekolah tujuan: _________<br/>
+                [ ] User premium aktif: ___ orang (≥20?)<br/>
+                [ ] Cashback Joiner A: Rp100.000 ✓<br/>
+                [ ] Cashback Joiner B: Rp100.000 ✓<br/>
+                [ ] Sudah transfer keduanya? [ ] Ya [ ] Belum
+              </div>
+            </div>
+
+            {/* Tips Efisiensi */}
+            <div className="rounded-3xl bg-blue-900/20 border border-blue-800 p-6">
+              <h3 className="text-xl font-bold text-blue-400 mb-4">💡 Tips Efisiensi</h3>
+              <ul className="text-sm text-blue-200 space-y-2 list-disc list-inside">
+                <li>Gunakan fitur "Daftar Semua Kode Joiner" untuk prioritaskan cashback besar</li>
+                <li>Buat spreadsheet sederhana untuk track pembayaran bulanan</li>
+                <li>Simpan screenshot data joiner sebagai bukti dokumentasi</li>
+                <li>Komunikasi jelas dengan joiner via WhatsApp template</li>
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-w-6xl mx-auto px-6 py-10">
+      <div className="text-center mb-8">
+        <h1 className="text-4xl font-black tracking-tight">
+          Admin Cashback Tracker
+        </h1>
+        <p className="text-zinc-400 mt-3">
+          Hitung cashback untuk joiner berdasarkan user premium aktif
+        </p>
+      </div>
+
+      {!isAdmin ? (
+        <div className="rounded-3xl bg-red-900/50 border border-red-800 p-8 text-center">
+          <h2 className="text-2xl font-bold text-red-300 mb-4">⚠️ Akses Ditolak</h2>
+          <p className="text-red-200">
+            Hanya admin yang bisa mengakses halaman ini.
+          </p>
+          <p className="text-red-100 mt-2">
+            Login dengan email: tkasmp25.monitoringpremium@gmail.com
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Navbar SOP */}
+          <div className="flex justify-center mb-8">
+            <div className="inline-flex bg-zinc-800 rounded-full p-1">
+              <button
+                onClick={() => setActiveTab("cashback")}
+                className={`px-6 py-3 rounded-full font-bold transition-all ${
+                  activeTab === "cashback"
+                    ? "bg-white text-black"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                Hitung Cashback
+              </button>
+              <button
+                onClick={() => setActiveTab("sop")}
+                className={`px-6 py-3 rounded-full font-bold transition-all ${
+                  activeTab === "sop"
+                    ? "bg-blue-500 text-black"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                SOP Admin Cashback
+              </button>
+            </div>
+          </div>
+
+          {/* Konten Utama */}
+          {renderSOPContent()}
+        </>
       )}
     </div>
   );

@@ -1,5 +1,5 @@
-// src/firebase/index.ts
-import { initializeApp } from "firebase/app";
+// src/firebase/index.ts (FINAL)
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
@@ -9,11 +9,11 @@ const firebaseConfig = {
   projectId: "tkasmp25-fafed",
   storageBucket: "tkasmp25-fafed.firebasestorage.app",
   messagingSenderId: "159870269390",
-  appId: "1:159870269390:web:96919700fd3ef6cadc1d9f"
+  appId: "1:159870269390:web:96919700fd3ef6cadc1d9f",
 };
 
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
+// ✅ ANTI DOUBLE INIT (WAJIB)
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
-export { app, auth, db };
+export const auth = getAuth(app);
+export const db = getFirestore(app);
