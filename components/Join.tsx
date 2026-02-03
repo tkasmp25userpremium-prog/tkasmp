@@ -1,14 +1,15 @@
+// components/Join.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { auth, db } from "./firebase";
+import { auth, db } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { doc, updateDoc } from "firebase/firestore";
-import { loginGoogle, logoutGoogle } from "./premiumstore";
-import { registerJoiner } from "./firebase/joiner";
+import { loginGoogle, logoutGoogle } from "../premiumstore";
+import { registerJoiner } from "../firebase/joiner";
 
 const JOIN_CODE_KEY = "tka_smp_joiner_code_v1";
 
 // ✅ Kalau form joiner NONAKTIF, biarkan string kosong
-const JOINER_FORM_URL = ""; // "https://forms.gle/xxxxx"
+const JOINER_FORM_URL = ""; // "https://forms.gle/xxxxx  "
 
 const Join: React.FC = () => {
   const [msg, setMsg] = useState("");
@@ -140,7 +141,7 @@ const Join: React.FC = () => {
       "",
       `Kode Diskon: ${joinCode}`,
       "",
-      "Website: https://tkasmp-latihan.vercel.app",
+      "Website: https://tkasmp-latihan.vercel.app  ",
       "",
       "Catatan: masukkan kode diskon ini di halaman Premium sebelum bayar ya 🙏",
     ].join("\n");
