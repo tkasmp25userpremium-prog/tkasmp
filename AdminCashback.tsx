@@ -1,4 +1,4 @@
-// AdminCashback.tsx (FINAL)
+// AdminCashback.tsx (FINAL - With Admin WA Note)
 import React, { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
@@ -12,6 +12,7 @@ const AdminCashback: React.FC = () => {
     premiumActive: number;
     premiumInactive: number;
     joinerData: any;
+    joinerDocId: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
@@ -73,19 +74,21 @@ const AdminCashback: React.FC = () => {
         return data.isPremium === true && (data.activeUntil || 0) > Date.now();
       }).length;
 
-      // Cari data joiner (termasuk rekening)
+      // Cari data joiner (termasuk rekening) - ambil dokumen pertama
       const joinersQuery = query(
         collection(db, "joiners"),
         where("joinCode", "==", joinCode.trim())
       );
       const joinersSnapshot = await getDocs(joinersQuery);
-      const joinerData = joinersSnapshot.docs[0]?.data() || {};
+      const joinerDoc = joinersSnapshot.docs[0]; // Ambil dokumen pertama
+      const joinerData = joinerDoc ? { id: joinerDoc.id, ...joinerDoc.data() } : {};
 
       setResult({
         totalUsers,
         premiumActive,
         premiumInactive: totalUsers - premiumActive,
-        joinerData
+        joinerData,
+        joinerDocId: joinerDoc?.id || ""
       });
 
       setMessage(`✅ Ditemukan ${totalUsers} user dengan kode ${joinCode}`);
@@ -109,37 +112,84 @@ const AdminCashback: React.FC = () => {
     setWaMessage(message);
   };
 
+  // ✅ Update totalUsed - FIXED VERSION
   const updateTotalUsed = async () => {
-    if (!result) return;
+    if (!result || !result.joinerDocId) {
+      setMessage("❌ Tidak ada data joiner untuk diupdate.");
+      return;
+    }
 
     setLoading(true);
     setMessage("");
 
     try {
-      const joinersQuery = query(
-        collection(db, "joiners"),
-        where("joinCode", "==", joinCode.trim())
-      );
-      const joinersSnapshot = await getDocs(joinersQuery);
-
-      if (joinersSnapshot.empty) {
-        setMessage("❌ Joiner tidak ditemukan!");
-        return;
-      }
-
-      const joinerDoc = joinersSnapshot.docs[0];
-      const joinerRef = doc(db, "joiners", joinerDoc.id);
-
+      const joinerRef = doc(db, "joiners", result.joinerDocId);
       await updateDoc(joinerRef, {
         totalUsed: result.premiumActive,
       });
 
       setMessage(`✅ totalUsed berhasil diupdate menjadi ${result.premiumActive}`);
+
+      // Refresh data joiner
+      const updatedJoinerDoc = await getDocs(query(collection(db, "joiners"), where("joinCode", "==", joinCode.trim())));
+      if (!updatedJoinerDoc.empty) {
+        const updatedData = { id: updatedJoinerDoc.docs[0].id, ...updatedJoinerDoc.docs[0].data() };
+        setResult(prev => prev ? {
+          ...prev,
+          joinerData: updatedData,
+          joinerDocId: updatedJoinerDoc.docs[0].id
+        } : null);
+      }
     } catch (error) {
-      setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal update"}`);
+      console.error("Update error:", error);
+      setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal update data"}`);
     } finally {
       setLoading(false);
     }
+  };
+
+  // ✅ Reset totalUsed dan update status pembayaran
+  const resetTotalUsed = async (joinerId: string, joinerName: string) => {
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const joinerRef = doc(db, "joiners", joinerId);
+      await updateDoc(joinerRef, {
+        totalUsed: 0,
+        paymentStatus: "Sudah Dibayar", // ✅ Status baru
+        lastPaymentDate: new Date().toISOString() // ✅ Tanggal pembayaran
+      });
+
+      setMessage(`✅ totalUsed ${joinerName} berhasil direset ke 0. Status: Sudah Dibayar.`);
+      loadAllJoiners(); // Refresh tabel
+    } catch (error) {
+      console.error("Reset error:", error);
+      setMessage(`❌ Gagal reset  ${(error as Error).message || "Terjadi kesalahan"}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ✅ Kirim WA Otomatis
+  const sendWaAutomatically = (phoneNumber: string, message: string) => {
+    if (!phoneNumber) {
+      setMessage("❌ Nomor WhatsApp tidak ditemukan untuk joiner ini.");
+      return;
+    }
+
+    // Bersihkan nomor HP
+    const cleanPhone = phoneNumber.replace(/[^0-9]/g, "");
+    if (!cleanPhone.startsWith("62")) {
+      setMessage("❌ Format nomor WA tidak valid. Harus dimulai dengan 62.");
+      return;
+    }
+
+    const encodedMessage = encodeURIComponent(message);
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+    
+    // Buka di tab baru
+    window.open(waUrl, '_blank');
   };
 
   const copyWaMessage = async () => {
@@ -183,6 +233,13 @@ const AdminCashback: React.FC = () => {
           {/* Daftar Semua Kode Joiner */}
           <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
             <div className="text-lg font-bold mb-4">Daftar Semua Kode Joiner</div>
+            <div className="text-sm text-zinc-400 mb-4">
+              ⚠️ <strong>Catatan:</strong> Klik tombol "Reset Total Used" untuk mengatur totalUsed ke 0 dan menandai joiner sudah dibayar.
+            </div>
+            {/* ✅ CATATAN WA ADMIN DITAMBAHKAN DI SINI */}
+            <div className="text-sm text-yellow-400 mb-4 bg-yellow-900/20 p-3 rounded-lg border border-yellow-800">
+              ⚠️ <strong>Penting:</strong> Pastikan kamu <b>login ke WA admin (08981091600)</b> di browser sebelum klik tombol <b>"Kirim WA"</b> agar pesan dikirim dari nomor admin.
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm text-left text-zinc-300">
                 <thead className="text-xs uppercase bg-zinc-800">
@@ -190,10 +247,13 @@ const AdminCashback: React.FC = () => {
                     <th className="px-4 py-3">Nama</th>
                     <th className="px-4 py-3">Email</th>
                     <th className="px-4 py-3">Kode Joiner</th>
-                    <th className="px-4 py-3">Rekomendasi</th> {/* ✅ Ditambahkan */}
+                    <th className="px-4 py-3">Rekomendasi</th>
                     <th className="px-4 py-3">Sekolah</th>
                     <th className="px-4 py-3">Rekening</th>
+                    <th className="px-4 py-3">WA</th>
                     <th className="px-4 py-3">Total Used</th>
+                    <th className="px-4 py-3">Status Pembayaran</th>
+                    <th className="px-4 py-3">Aksi</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -202,10 +262,50 @@ const AdminCashback: React.FC = () => {
                       <td className="px-4 py-3">{joiner.name || "-"}</td>
                       <td className="px-4 py-3">{joiner.email}</td>
                       <td className="px-4 py-3 font-mono">{joiner.joinCode || "-"}</td>
-                      <td className="px-4 py-3 font-mono">{joiner.recommenderCode || "-"}</td> {/* ✅ Ditambahkan */}
+                      <td className="px-4 py-3 font-mono">{joiner.recommenderCode || "-"}</td>
                       <td className="px-4 py-3">{joiner.school || "-"}</td>
                       <td className="px-4 py-3">{joiner.bankAccount || "-"}</td>
+                      <td className="px-4 py-3">
+                        {joiner.whatsapp ? (
+                          <button
+                            onClick={() => sendWaAutomatically(joiner.whatsapp, `Halo ${joiner.name || 'Joiner'}, terima kasih atas kontribusi Anda sebagai joiner TKA SMP!`)}
+                            className="text-green-400 hover:underline"
+                          >
+                            {joiner.whatsapp}
+                          </button>
+                        ) : (
+                          "-"
+                        )}
+                      </td>
                       <td className="px-4 py-3">{joiner.totalUsed || 0}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                          joiner.paymentStatus === "Sudah Dibayar"
+                            ? "bg-green-900 text-green-300"
+                            : "bg-yellow-900 text-yellow-300"
+                        }`}>
+                          {joiner.paymentStatus || "Belum Dibayar"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-col gap-1">
+                          <button
+                            onClick={() => resetTotalUsed(joiner.id, joiner.name || joiner.email || "Joiner")}
+                            disabled={loading}
+                            className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                          >
+                            Reset Total Used
+                          </button>
+                          {joiner.whatsapp && (
+                            <button
+                              onClick={() => sendWaAutomatically(joiner.whatsapp, `Halo ${joiner.name || 'Joiner'}, terima kasih atas kontribusi Anda sebagai joiner TKA SMP!`)}
+                              className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                            >
+                              Kirim WA (Admin)
+                            </button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -225,7 +325,7 @@ const AdminCashback: React.FC = () => {
                   <div><span className="text-zinc-400">Nama:</span> <span className="text-white">{result.joinerData?.name || "-"}</span></div>
                   <div><span className="text-zinc-400">Email:</span> <span className="text-white">{result.joinerData?.email || "-"}</span></div>
                   <div><span className="text-zinc-400">Kode Joiner:</span> <span className="text-white font-mono">{result.joinerData?.joinCode || "-"}</span></div>
-                  <div><span className="text-zinc-400">Kode Rekomendasi:</span> <span className="text-white font-mono">{result.joinerData?.recommenderCode || "-"}</span></div> {/* ✅ Ditambahkan */}
+                  <div><span className="text-zinc-400">Kode Rekomendasi:</span> <span className="text-white font-mono">{result.joinerData?.recommenderCode || "-"}</span></div>
                   <div><span className="text-zinc-400">Sekolah:</span> <span className="text-white">{result.joinerData?.school || "-"}</span></div>
                   <div><span className="text-zinc-400">WhatsApp:</span> <span className="text-white">{result.joinerData?.whatsapp || "-"}</span></div>
                   <div><span className="text-zinc-400">Rekening/E-wallet:</span> <span className="text-white">{result.joinerData?.bankAccount || "-"}</span></div>
