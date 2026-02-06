@@ -1,4 +1,4 @@
-// AdminCashback.tsx (FINAL - With Admin WA Note)
+// AdminCashback.tsx (FINAL - All Features Included)
 import React, { useState, useEffect } from "react";
 import { db } from "./firebase";
 import { collection, query, where, getDocs, doc, updateDoc } from "firebase/firestore";
@@ -7,6 +7,7 @@ import { auth, onAuthStateChanged } from "./firebase";
 const AdminCashback: React.FC = () => {
   const [joinCode, setJoinCode] = useState("");
   const [allJoiners, setAllJoiners] = useState<any[]>([]);
+  const [schoolCounts, setSchoolCounts] = useState<Record<string, number>>({});
   const [result, setResult] = useState<{
     totalUsers: number;
     premiumActive: number;
@@ -28,12 +29,38 @@ const AdminCashback: React.FC = () => {
       if (user && user.email === "tkasmp25.monitoringpremium@gmail.com") {
         setIsAdmin(true);
         loadAllJoiners();
+        loadSchoolCounts(); // ✅ Preload data sekolah
       } else {
         setIsAdmin(false);
       }
     });
     return () => unsubscribe();
   }, []);
+
+  // ✅ Load semua user aktif per sekolah (preload sekali saja)
+  const loadSchoolCounts = async () => {
+    try {
+      const q = query(
+        collection(db, "users"),
+        where("isPremium", "==", true),
+        where("activeUntil", ">", new Date())
+      );
+      const snapshot = await getDocs(q);
+      const counts: Record<string, number> = {};
+
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        const school = data.school;
+        if (school) {
+          counts[school] = (counts[school] || 0) + 1;
+        }
+      });
+
+      setSchoolCounts(counts);
+    } catch (error) {
+      console.error("Error loading school counts:", error);
+    }
+  };
 
   // ✅ Load semua joiner
   const loadAllJoiners = async () => {
@@ -140,6 +167,7 @@ const AdminCashback: React.FC = () => {
           joinerDocId: updatedJoinerDoc.docs[0].id
         } : null);
       }
+      loadAllJoiners(); // Refresh tabel
     } catch (error) {
       console.error("Update error:", error);
       setMessage(`❌ Error: ${error instanceof Error ? error.message : "Gagal update data"}`);
@@ -203,6 +231,28 @@ const AdminCashback: React.FC = () => {
     }
   };
 
+  // ✅ Generate WA Message for Antarsekolah
+  const generateWaMessageAntarsekolah = (joiner: any) => {
+    const nama = joiner.name || joiner.email?.split('@')[0] || "Joiner";
+    const jumlahUser = schoolCounts[joiner.school] || 0;
+    
+    const message = `Halo ${nama} 👋\n\nCashback antar sekolah kamu sudah siap! 💰\n\n📊 Rincian:\n• Kode Joiner: ${joiner.joinCode}\n• Sekolah yang direkomendasikan: ${joiner.school}\n• User Premium Aktif: ${jumlahUser} orang\n• Cashback Antar Sekolah: Rp100.000\n\n💰 Total yang akan dibayarkan: Rp100.000\n\nSilakan konfirmasi nomor rekening/e-wallet ya!\nTerima kasih atas kontribusi Anda sebagai joiner TKA SMP! 🙏`;
+    
+    return message;
+  };
+
+  // ✅ Copy WA Message for Antarsekolah
+  const copyWaMessageAntarsekolah = async (joiner: any) => {
+    const message = generateWaMessageAntarsekolah(joiner);
+    try {
+      await navigator.clipboard.writeText(message);
+      setMessage("✅ Pesan WhatsApp antar sekolah berhasil dicopy!");
+      setTimeout(() => setMessage(""), 2000);
+    } catch (error) {
+      setMessage("❌ Gagal copy pesan WhatsApp antar sekolah");
+    }
+  };
+
   // ✅ Render SOP Content
   const renderSOPContent = () => {
     if (activeTab === "cashback") {
@@ -230,6 +280,29 @@ const AdminCashback: React.FC = () => {
             {message && <div className="mt-4 text-sm text-yellow-300">{message}</div>}
           </div>
 
+          {/* Summary Pembayaran */}
+          <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-6">
+            <div className="text-lg font-bold mb-4">📊 Ringkasan Cashback Bulan Ini</div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="bg-blue-900/30 p-4 rounded-lg">
+                <div className="text-sm text-blue-300">Total Joiner</div>
+                <div className="text-xl font-bold">{allJoiners.length}</div>
+              </div>
+              <div className="bg-green-900/30 p-4 rounded-lg">
+                <div className="text-sm text-green-300">Sudah Dibayar</div>
+                <div className="text-xl font-bold">{allJoiners.filter(j => j.paymentStatus === "Sudah Dibayar").length}</div>
+              </div>
+              <div className="bg-yellow-900/30 p-4 rounded-lg">
+                <div className="text-sm text-yellow-300">Belum Dibayar</div>
+                <div className="text-xl font-bold">{allJoiners.filter(j => j.paymentStatus !== "Sudah Dibayar").length}</div>
+              </div>
+              <div className="bg-red-900/30 p-4 rounded-lg">
+                <div className="text-sm text-red-300">Total Cashback</div>
+                <div className="text-xl font-bold">Rp{(allJoiners.reduce((sum, j) => sum + (j.totalUsed || 0) * 10000, 0)).toLocaleString('id-ID')}</div>
+              </div>
+            </div>
+          </div>
+
           {/* Daftar Semua Kode Joiner */}
           <div className="rounded-3xl bg-zinc-900/50 border border-zinc-800 p-8">
             <div className="text-lg font-bold mb-4">Daftar Semua Kode Joiner</div>
@@ -249,6 +322,8 @@ const AdminCashback: React.FC = () => {
                     <th className="px-4 py-3">Kode Joiner</th>
                     <th className="px-4 py-3">Rekomendasi</th>
                     <th className="px-4 py-3">Sekolah</th>
+                    <th className="px-4 py-3">User Premium di Sekolah Ini</th>
+                    <th className="px-4 py-3">Status Antarsekolah</th>
                     <th className="px-4 py-3">Rekening</th>
                     <th className="px-4 py-3">WA</th>
                     <th className="px-4 py-3">Total Used</th>
@@ -257,57 +332,83 @@ const AdminCashback: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {allJoiners.map((joiner, index) => (
-                    <tr key={index} className="border-b border-zinc-700 hover:bg-zinc-800">
-                      <td className="px-4 py-3">{joiner.name || "-"}</td>
-                      <td className="px-4 py-3">{joiner.email}</td>
-                      <td className="px-4 py-3 font-mono">{joiner.joinCode || "-"}</td>
-                      <td className="px-4 py-3 font-mono">{joiner.recommenderCode || "-"}</td>
-                      <td className="px-4 py-3">{joiner.school || "-"}</td>
-                      <td className="px-4 py-3">{joiner.bankAccount || "-"}</td>
-                      <td className="px-4 py-3">
-                        {joiner.whatsapp ? (
-                          <button
-                            onClick={() => sendWaAutomatically(joiner.whatsapp, `Halo ${joiner.name || 'Joiner'}, terima kasih atas kontribusi Anda sebagai joiner TKA SMP!`)}
-                            className="text-green-400 hover:underline"
-                          >
-                            {joiner.whatsapp}
-                          </button>
-                        ) : (
-                          "-"
-                        )}
-                      </td>
-                      <td className="px-4 py-3">{joiner.totalUsed || 0}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${
-                          joiner.paymentStatus === "Sudah Dibayar"
-                            ? "bg-green-900 text-green-300"
-                            : "bg-yellow-900 text-yellow-300"
-                        }`}>
-                          {joiner.paymentStatus || "Belum Dibayar"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-col gap-1">
-                          <button
-                            onClick={() => resetTotalUsed(joiner.id, joiner.name || joiner.email || "Joiner")}
-                            disabled={loading}
-                            className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
-                          >
-                            Reset Total Used
-                          </button>
-                          {joiner.whatsapp && (
+                  {allJoiners.map((joiner, index) => {
+                    const userCount = schoolCounts[joiner.school] || 0;
+                    const isAntarsekolah = joiner.recommenderCode && joiner.recommenderCode !== "-";
+                    const statusAntarsekolah = isAntarsekolah ? 
+                      (userCount >= 20 ? "✅ Sudah ≥20" : "❌ <20") : 
+                      "❓ Tidak Rekomendasi";
+                    
+                    return (
+                      <tr key={index} className="border-b border-zinc-700 hover:bg-zinc-800">
+                        <td className="px-4 py-3">{joiner.name || "-"}</td>
+                        <td className="px-4 py-3">{joiner.email}</td>
+                        <td className="px-4 py-3 font-mono">{joiner.joinCode || "-"}</td>
+                        <td className="px-4 py-3 font-mono">{joiner.recommenderCode || "-"}</td>
+                        <td className="px-4 py-3">{joiner.school || "-"}</td>
+                        <td className="px-4 py-3">{userCount}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                            userCount >= 20 ? "bg-green-900 text-green-300" : 
+                            userCount > 0 ? "bg-yellow-900 text-yellow-300" : 
+                            "bg-gray-900 text-gray-300"
+                          }`}>
+                            {statusAntarsekolah}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">{joiner.bankAccount || "-"}</td>
+                        <td className="px-4 py-3">
+                          {joiner.whatsapp ? (
                             <button
                               onClick={() => sendWaAutomatically(joiner.whatsapp, `Halo ${joiner.name || 'Joiner'}, terima kasih atas kontribusi Anda sebagai joiner TKA SMP!`)}
-                              className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                              className="text-green-400 hover:underline"
                             >
-                              Kirim WA (Admin)
+                              {joiner.whatsapp}
                             </button>
+                          ) : (
+                            "-"
                           )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-4 py-3">{joiner.totalUsed || 0}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${
+                            joiner.paymentStatus === "Sudah Dibayar"
+                              ? "bg-green-900 text-green-300"
+                              : "bg-yellow-900 text-yellow-300"
+                          }`}>
+                            {joiner.paymentStatus || "Belum Dibayar"}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
+                            <button
+                              onClick={() => resetTotalUsed(joiner.id, joiner.name || joiner.email || "Joiner")}
+                              disabled={loading}
+                              className="text-xs px-2 py-1 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              Reset Total Used
+                            </button>
+                            {joiner.whatsapp && (
+                              <button
+                                onClick={() => sendWaAutomatically(joiner.whatsapp, `Halo ${joiner.name || 'Joiner'}, terima kasih atas kontribusi Anda sebagai joiner TKA SMP!`)}
+                                className="text-xs px-2 py-1 rounded bg-green-600 text-white hover:bg-green-700"
+                              >
+                                Kirim WA (Admin)
+                              </button>
+                            )}
+                            {isAntarsekolah && userCount >= 20 && (
+                              <button
+                                onClick={() => copyWaMessageAntarsekolah(joiner)}
+                                className="text-xs px-2 py-1 rounded bg-purple-600 text-white hover:bg-purple-700"
+                              >
+                                Copy WA Antarsekolah
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -464,10 +565,10 @@ const AdminCashback: React.FC = () => {
                 <div>
                   <b>Langkah Validasi:</b>
                   <ol className="list-decimal list-inside mt-2 space-y-1 ml-4">
-                    <li>Cari joiner dengan <code className="bg-zinc-800 px-2 py-1 rounded">recommenderCode</code> ≠ kosong</li>
-                    <li>Buka Firestore Console → filter user by sekolah</li>
-                    <li>Hitung manual user premium aktif dari sekolah tersebut</li>
-                    <li>Pastikan jumlah ≥20 sebelum berikan cashback</li>
+                    <li>Lihat kolom <code className="bg-zinc-800 px-2 py-1 rounded">"Status Antarsekolah"</code>: harus <b>✅ Sudah ≥20</b></li>
+                    <li>Verifikasi: apakah Joiner A benar-benar merekomendasikan ke Sekolah B</li>
+                    <li>Verifikasi: apakah Joiner B adalah PIC Sekolah B (jika ada lebih dari 1 joiner dari sekolah yang sama)</li>
+                    <li>Jika semua valid → klik tombol <b>"Reset Total Used"</b> untuk keduanya</li>
                   </ol>
                 </div>
 
@@ -476,6 +577,16 @@ const AdminCashback: React.FC = () => {
                   <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
                     <li><b>Joiner A</b> (pemberi rekomendasi): Rp100.000</li>
                     <li><b>Joiner B</b> (PIC Sekolah B): Rp100.000</li>
+                  </ul>
+                </div>
+
+                <div>
+                  <b>Cara Kerja Admin:</b>
+                  <ul className="list-disc list-inside mt-2 space-y-1 ml-4">
+                    <li>Lihat tabel joiner → cari yang kolom <code className="bg-zinc-800 px-2 py-1 rounded">"Status Antarsekolah"</code> = <b>✅ Sudah ≥20</b></li>
+                    <li>Klik tombol <b>"Copy WA Antarsekolah"</b> → tempel ke WA admin</li>
+                    <li>Kirim ke nomor joiner</li>
+                    <li>Klik tombol <b>"Reset Total Used"</b> → status jadi "Sudah Dibayar"</li>
                   </ul>
                 </div>
               </div>

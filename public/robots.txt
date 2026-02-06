@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /admin-cashback
+
+Sitemap: https://tkasmp-latihan.vercel.app/sitemap.xml
